@@ -27,16 +27,9 @@
   - Markdown export and copy-to-clipboard
   - Thai-language UI and human-friendly Thai error messages
 
-- **Screenshots:**
-  <!-- TODO: add screenshots, e.g. -->
-  <!-- ![Upload screen](docs/screenshots/upload.png) -->
-  <!-- ![Cost confirmation](docs/screenshots/confirm.png) -->
-  <!-- ![Streaming summary](docs/screenshots/summary.png) -->
-  <!-- ![Q&A chat](docs/screenshots/chat.png) -->
+- **Screenshot:**
 
-- **Proposal:** <!-- TODO: add link, e.g. [Project Proposal (PDF)](docs/proposal.pdf) -->
-
-- **Presentation:** <!-- TODO: add YouTube link -->
+  ![Home screen — upload zone](docs/screenshots/home.png)
 
 ---
 
@@ -88,8 +81,6 @@ flowchart TD
     S & C -->|messages.stream| API
 ```
 
-<!-- TODO (if the course requires a PDF diagram): export this diagram to docs/architecture.pdf and link it here -->
-
 ---
 
 ## 4. Implementation (Modules & Responsibilities)
@@ -123,13 +114,7 @@ The codebase is functional/modular TypeScript. The main units and their responsi
 
 ---
 
-## 6. Changed Proposed Features
-
-<!-- TODO: fill in if the final app differs from the proposal; otherwise state that all proposed features were implemented as planned -->
-
----
-
-## 7. External Sources
+## 6. External Sources
 
 | Material | Source | License |
 |---|---|---|
