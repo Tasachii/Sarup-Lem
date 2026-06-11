@@ -7,6 +7,7 @@ import {
   LEVELS,
   type DetailLevel,
 } from "@/lib/summarize";
+import { friendlyError } from "@/lib/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -59,8 +60,7 @@ export async function POST(request: Request) {
           await msgStream.finalMessage();
           controller.close();
         } catch (err) {
-          const message =
-            err instanceof Error ? err.message : "การสรุปล้มเหลวกลางทาง";
+          const message = friendlyError(err, "การสรุปล้มเหลวกลางทาง");
           controller.enqueue(encoder.encode(`\n\n> ⚠️ ${message}`));
           controller.close();
         }
@@ -78,7 +78,9 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาด";
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json(
+      { error: friendlyError(err, "เกิดข้อผิดพลาด") },
+      { status: 500 }
+    );
   }
 }

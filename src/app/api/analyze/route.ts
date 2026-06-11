@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractFromFile, toUserContent } from "@/lib/extract";
 import { MODEL, MAX_INPUT_TOKENS, SUMMARY_INSTRUCTION } from "@/lib/summarize";
+import { friendlyError } from "@/lib/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -45,7 +46,9 @@ export async function POST(request: Request) {
       inputTokens,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการอ่านไฟล์";
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json(
+      { error: friendlyError(err, "เกิดข้อผิดพลาดในการอ่านไฟล์") },
+      { status: 500 }
+    );
   }
 }

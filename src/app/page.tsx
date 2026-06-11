@@ -135,7 +135,8 @@ export default function Home() {
         setSummary(acc);
       }
       setPhase("done");
-      // บันทึกลงประวัติ
+      // บันทึกลงประวัติ — ข้ามถ้าสรุปล้มเหลวตั้งแต่ต้น (ได้แต่ข้อความ error)
+      if (!acc.trim() || acc.trimStart().startsWith("> ⚠️")) return;
       const entry: HistoryEntry = {
         id: crypto.randomUUID(),
         fileName: file.name,
