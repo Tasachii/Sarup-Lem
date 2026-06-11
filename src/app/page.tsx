@@ -66,6 +66,7 @@ export default function Home() {
   const [chatBusy, setChatBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setHistory(loadHistory());
@@ -115,11 +116,18 @@ export default function Home() {
     setSummary("");
     setChat([]);
     setPhase("summarizing");
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    let acc = "";
     try {
       const form = new FormData();
       form.append("file", file);
       form.append("level", level);
-      const res = await fetch("/api/summarize", { method: "POST", body: form });
+      const res = await fetch("/api/summarize", {
+        method: "POST",
+        body: form,
+        signal: ctrl.signal,
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? "การสรุปล้มเหลว");
@@ -127,7 +135,6 @@ export default function Home() {
       if (!res.body) throw new Error("ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let acc = "";
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -150,10 +157,26 @@ export default function Home() {
         return next;
       });
     } catch (err) {
+      if (ctrl.signal.aborted) {
+        // ผู้ใช้กดหยุดเอง — เก็บส่วนที่สรุปแล้วไว้ดู แต่ไม่บันทึกลงประวัติ
+        if (acc.trim()) {
+          setSummary(acc + "\n\n> ⏹ หยุดการสรุปก่อนจบ — เนื้อหาด้านบนคือส่วนที่สรุปได้ก่อนยกเลิก");
+          setPhase("done");
+        } else {
+          setPhase("ready");
+        }
+        return;
+      }
       setError(err instanceof Error ? err.message : "เกิดข้อผิดพลาด");
       setPhase("ready");
+    } finally {
+      abortRef.current = null;
     }
   }, [file, level]);
+
+  const cancelSummarize = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   const ask = useCallback(async () => {
     const q = chatInput.trim();
@@ -484,6 +507,12 @@ export default function Home() {
                 <span className="inline-flex items-center gap-2">
                   <span className="spin-slow inline-block h-3.5 w-3.5 rounded-full border border-ink-line border-t-amber" />
                   กำลังสรุป «{file?.name}» …
+                  <button
+                    onClick={cancelSummarize}
+                    className="cursor-pointer rounded-full border border-red-900/60 px-3 py-1 text-xs text-red-300 transition-colors hover:bg-red-950/40"
+                  >
+                    ⏹ หยุด
+                  </button>
                 </span>
               ) : viewingHistory ? (
                 <>จากประวัติการสรุป</>
