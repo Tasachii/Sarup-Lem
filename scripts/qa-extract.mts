@@ -1,12 +1,14 @@
 /**
  * QA: ทดสอบ extractFromFile กับไฟล์ทุกประเภท (รันได้โดยไม่ต้องมี API key)
- * วิธีรัน: npx tsx scripts/qa-extract.mts <fixtures-dir>
+ * วิธีรัน: npm test  (หรือ npx tsx scripts/qa-extract.mts [fixtures-dir])
  */
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { extractFromFile } from "../src/lib/extract";
 
-const dir = process.argv[2] ?? "/tmp/booksum-qa";
+const here = dirname(fileURLToPath(import.meta.url));
+const dir = process.argv[2] ?? join(here, "..", "test", "fixtures");
 let pass = 0;
 let fail = 0;
 
@@ -57,15 +59,14 @@ for (const f of ["doc.txt", "doc.md"]) {
   );
 }
 
-// 3) pdf ที่มี text layer — ต้องสกัดเป็น text ได้ (ถ้า cupsfilter ฝัง text)
+// 3) pdf ที่มี text layer — ต้องสกัดเป็น text ได้ (fixture สร้างด้วย Chrome print-to-pdf)
 {
   const r = await extractFromFile(load("doc.pdf"));
-  if (r.kind === "text") {
-    check("doc.pdf", r.text.length > 100, `text ${r.text.length} chars`);
-  } else {
-    // cupsfilter บางเครื่อง rasterize — fallback เป็น pdf-native ถือว่าถูกต้องตามดีไซน์
-    check("doc.pdf", true, "ไม่มี text layer → fallback pdf-native (ตามดีไซน์)");
-  }
+  check(
+    "doc.pdf",
+    r.kind === "text" && r.text.includes("50/30/20") && r.text.includes("Chapter 3"),
+    r.kind === "text" ? `text ${r.text.length} chars` : `kind=${r.kind} (ควรเป็น text)`
+  );
 }
 
 // 4) pdf ภาพล้วน (สแกน) — ต้อง fallback เป็น pdf-native
