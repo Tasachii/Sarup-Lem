@@ -52,9 +52,12 @@ book-summarizer/
 ├── package.json                  # Next.js 16 app — dev/build/start scripts
 ├── .env.example                  # template: ANTHROPIC_API_KEY=
 ├── .env.local                    # your real key (gitignored)
-├── docs/screenshots/home.png     # screenshot used by DESCRIPTION.md
+├── docs/screenshots/home.png     # screenshot used by README/DESCRIPTION
+├── .github/workflows/ci.yml      # CI: npm ci → build → test on every push/PR
 ├── scripts/
 │   └── qa-extract.mts            # offline test suite for the extraction layer
+├── test/fixtures/                # committed fixtures: txt/md/docx, text PDF,
+│                                 #   scanned PDF, unsupported type, empty file
 │
 └── src/
     ├── lib/
@@ -216,7 +219,10 @@ idle ──upload──► analyzing ──ok──► ready ──confirm──
 - **summarizing** — the client reads the response body with a `ReadableStream` reader,
   decodes chunks, and re-renders the Markdown view on every chunk; a blinking caret marks
   the stream as live. The accumulated text also lives in a local variable (`acc`) so the
-  final, complete string is available synchronously when the stream ends.
+  final, complete string is available synchronously when the stream ends. A **stop
+  button** aborts the fetch via `AbortController` — the server's stream `cancel()` hook
+  aborts the upstream Anthropic call, so spending stops; any partial summary stays
+  visible (marked "หยุดการสรุปก่อนจบ") but is never saved to history.
 - **done** — toolbar appears (copy / download `.md` / start over), and the **Q&A chat**
   section mounts below the summary.
 
@@ -316,7 +322,7 @@ npm install                                  # Node 18+
 cp .env.example .env.local                   # then paste your Anthropic API key
 npm run dev                                  # dev server with hot reload, :3000
 npm run build && npm run start               # production build + serve
-npx tsx scripts/qa-extract.mts <fixtures>    # extraction test suite (no API key needed)
+npm test                                     # extraction test suite (no API key needed)
 ```
 
 | Env var | Purpose |
@@ -324,9 +330,11 @@ npx tsx scripts/qa-extract.mts <fixtures>    # extraction test suite (no API key
 | `ANTHROPIC_API_KEY` | The only secret. Server-side only — never exposed to the browser. |
 
 **Testing strategy.** The extraction layer has a real test suite
-(`scripts/qa-extract.mts`): seven cases covering txt/md/docx, a text-layer PDF, a
-scanned PDF (must fall back to `pdf-native`), an unsupported type, and an empty file —
-all runnable offline. Route behavior (validation order, error shapes, the in-band stream
+(`scripts/qa-extract.mts` + committed fixtures in `test/fixtures/`): seven cases covering
+txt/md/docx, a text-layer PDF (generated with Chrome's print-to-pdf so it has a genuine
+text layer), a scanned PDF (must fall back to `pdf-native`), an unsupported type, and an
+empty file — all runnable offline. GitHub Actions (`.github/workflows/ci.yml`) runs
+`npm ci → build → test` on every push. Route behavior (validation order, error shapes, the in-band stream
 error convention) was verified against a running server with a dummy key, which exercises
 every code path except real model output. Anything involving actual summaries (quality,
 caching hit rates, real cost) requires a funded key and is tested manually.

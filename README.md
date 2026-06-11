@@ -1,5 +1,7 @@
 # สรุปเล่ม (Sarup Lem) — AI Book Summarizer
 
+![Home screen](docs/screenshots/home.png)
+
 ## Project Description
 
 - Project by: Phasathat Jaruchitsophon
@@ -61,10 +63,10 @@ npm run start
 
 Then open **http://localhost:3000** in your browser.
 
-To run the file-extraction test suite (works without an API key):
+To run the test suite (works without an API key — fixtures are included in `test/fixtures/`):
 
 ```sh
-npx tsx scripts/qa-extract.mts <path-to-fixture-folder>
+npm test
 ```
 
 ---
