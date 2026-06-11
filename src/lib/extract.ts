@@ -42,23 +42,31 @@ export async function extractFromFile(file: File): Promise<Extracted> {
   throw new Error("รองรับเฉพาะไฟล์ .pdf .docx .txt และ .md");
 }
 
+/**
+ * สร้าง content บล็อกสำหรับส่งเข้า API — แยกบล็อกเอกสารกับบล็อกคำสั่ง/คำถาม
+ * เพื่อให้ติด cache_control ที่ตัวเอกสารได้ (คำถามเปลี่ยนได้โดย cache ไม่หลุด)
+ */
 export function toUserContent(
   ex: Extracted,
-  instruction: string
-): Anthropic.MessageParam["content"] {
-  if (ex.kind === "pdf-native") {
-    return [
-      {
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: ex.base64 },
-      },
-      { type: "text", text: instruction },
-    ];
-  }
-  return [
-    {
-      type: "text",
-      text: `<document>\n${ex.text}\n</document>\n\n${instruction}`,
-    },
-  ];
+  instruction: string,
+  opts?: { cache?: boolean }
+): Anthropic.ContentBlockParam[] {
+  const cacheControl = opts?.cache
+    ? { cache_control: { type: "ephemeral" as const } }
+    : {};
+
+  const docBlock: Anthropic.ContentBlockParam =
+    ex.kind === "pdf-native"
+      ? {
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: ex.base64 },
+          ...cacheControl,
+        }
+      : {
+          type: "text",
+          text: `<document>\n${ex.text}\n</document>`,
+          ...cacheControl,
+        };
+
+  return [docBlock, { type: "text", text: instruction }];
 }

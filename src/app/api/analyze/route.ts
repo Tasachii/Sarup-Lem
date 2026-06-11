@@ -1,14 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractFromFile, toUserContent } from "@/lib/extract";
-import {
-  MODEL,
-  INPUT_USD_PER_MTOK,
-  OUTPUT_USD_PER_MTOK,
-  EST_OUTPUT_TOKENS,
-  USD_TO_THB,
-  MAX_INPUT_TOKENS,
-  SUMMARY_INSTRUCTION,
-} from "@/lib/summarize";
+import { MODEL, MAX_INPUT_TOKENS, SUMMARY_INSTRUCTION } from "@/lib/summarize";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -46,15 +38,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const costUSD =
-      (inputTokens * INPUT_USD_PER_MTOK + EST_OUTPUT_TOKENS * OUTPUT_USD_PER_MTOK) / 1_000_000;
-
+    // ค่าใช้จ่ายคำนวณฝั่ง client ตามระดับความละเอียดที่เลือก (estimateCost ใน lib/summarize)
     return Response.json({
       fileName: file.name,
       kind: extracted.kind,
       inputTokens,
-      costUSD: Number(costUSD.toFixed(3)),
-      costTHB: Number((costUSD * USD_TO_THB).toFixed(2)),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการอ่านไฟล์";
