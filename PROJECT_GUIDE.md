@@ -8,6 +8,7 @@ to develop, test, and extend it. It complements the other docs rather than repla
 |---|---|
 | [`README.md`](README.md) | User-facing overview, installation, usage |
 | [`DESCRIPTION.md`](DESCRIPTION.md) | Project concept, objectives, architecture diagram, credits |
+| [`ROADMAP.md`](ROADMAP.md) | Future development plan (v1.1 → v3.0), staged by goal |
 | **This file** | How the code actually works, file by file |
 
 ---
