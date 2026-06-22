@@ -13,7 +13,7 @@
 
 ## Installation
 
-Requirements: **Node.js 18+** and **npm** (download from https://nodejs.org), plus an **Anthropic API key** (create one at https://platform.claude.com).
+Requirements: **Node.js 20+ (CI uses 22)** and **npm** (download from https://nodejs.org), plus an **Anthropic API key** (create one at https://platform.claude.com).
 
 To clone this project:
 
@@ -66,8 +66,26 @@ Then open **http://localhost:3000** in your browser.
 To run the test suite (works without an API key — fixtures are included in `test/fixtures/`):
 
 ```sh
-npm test
+npm test            # Vitest unit + route + component tests
+npm run test:watch  # watch mode
+npm run test:cov    # with coverage report (lines 80 / funcs 85 / branches 75 gate)
 ```
+
+The legacy extraction smoke-script is still available via `npm run test:extract`.
+
+---
+
+## ⚠️ Deploying: do NOT expose these endpoints publicly without rate limiting
+
+**The `/api/analyze`, `/api/summarize`, and `/api/chat` routes call the Anthropic API and spend real credits on every request.** `analyze` also performs a billable `countTokens` round-trip per upload, and `chat` re-sends the document each turn (kept cheap only by prompt caching). If these routes are reachable by the public internet without throttling, anyone can drain your account's credits.
+
+This repo ships a **simple in-memory per-IP rate limiter** in `src/proxy.ts` (Next.js 16 renamed `middleware` → `proxy`) that caps each IP to **10 requests/minute** across the three paid routes. This is a single-instance safeguard for self-hosting; **it does NOT cover multi-instance / serverless deployments** (e.g. Vercel), where each instance keeps its own counter.
+
+Before any public deployment you **must** add one of:
+
+- A distributed rate limiter (e.g. Upstash `@upstash/ratelimit`) keyed by IP, **or**
+- An auth gate / shared-secret header in front of the routes, **and**
+- A reverse-proxy / `Content-Length` body-size cap (uploads are also bounded server-side to **25 MB** via `MAX_UPLOAD_BYTES`).
 
 ---
 

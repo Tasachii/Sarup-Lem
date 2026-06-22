@@ -2,24 +2,17 @@ import Anthropic from "@anthropic-ai/sdk";
 import { extractFromFile, toUserContent } from "@/lib/extract";
 import { MODEL, MAX_INPUT_TOKENS, SUMMARY_INSTRUCTION } from "@/lib/summarize";
 import { friendlyError } from "@/lib/errors";
+import { RouteError, requireApiKey, requireFile } from "@/lib/route-helpers";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(request: Request) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return Response.json(
-        { error: "ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY ในไฟล์ .env.local" },
-        { status: 500 }
-      );
-    }
+    requireApiKey();
 
     const form = await request.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) {
-      return Response.json({ error: "ไม่พบไฟล์" }, { status: 400 });
-    }
+    const file = requireFile(form);
 
     const extracted = await extractFromFile(file);
     const client = new Anthropic();
@@ -46,6 +39,9 @@ export async function POST(request: Request) {
       inputTokens,
     });
   } catch (err) {
+    if (err instanceof RouteError) {
+      return Response.json({ error: err.message }, { status: err.status });
+    }
     return Response.json(
       { error: friendlyError(err, "เกิดข้อผิดพลาดในการอ่านไฟล์") },
       { status: 500 }

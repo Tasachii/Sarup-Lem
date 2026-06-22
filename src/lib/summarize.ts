@@ -1,9 +1,22 @@
 export const MODEL = "claude-sonnet-4-6";
 
-// ราคา Sonnet 4.6: input $3 / output $15 ต่อ 1M token
-export const INPUT_USD_PER_MTOK = 3;
-export const OUTPUT_USD_PER_MTOK = 15;
-export const USD_TO_THB = 36;
+/**
+ * แหล่งความจริงเดียวของราคา/อัตราแลกเปลี่ยน — กัน magic number กระจัดกระจาย
+ * asOf: เดือนที่ตรวจราคาล่าสุด (อัปเดตเมื่อ Anthropic เปลี่ยนราคา)
+ * usdToThb: override ได้ผ่าน env USD_TO_THB (ค่า FX เปลี่ยนบ่อย)
+ */
+export const PRICING = {
+  model: MODEL,
+  inputUsdPerMTok: 3,
+  outputUsdPerMTok: 15,
+  usdToThb: Number(process.env.USD_TO_THB) || 36,
+  asOf: "2026-06",
+} as const;
+
+// ราคา Sonnet 4.6: input $3 / output $15 ต่อ 1M token (อ้างจาก PRICING)
+export const INPUT_USD_PER_MTOK = PRICING.inputUsdPerMTok;
+export const OUTPUT_USD_PER_MTOK = PRICING.outputUsdPerMTok;
+export const USD_TO_THB = PRICING.usdToThb;
 export const MAX_INPUT_TOKENS = 950_000; // กันชนก่อนเต็ม context 1M
 
 export type DetailLevel = "brief" | "standard" | "detailed";

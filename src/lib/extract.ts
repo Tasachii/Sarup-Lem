@@ -4,11 +4,19 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 const MAX_NATIVE_PDF_BYTES = 20 * 1024 * 1024; // ส่ง PDF สแกนให้โมเดลอ่านตรงได้ไม่เกิน 20MB
 
+// เพดานขนาดไฟล์อัปโหลด — เช็คจาก file.size ก่อนอ่านเข้า memory กัน DoS
+export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25MB
+export const MAX_UPLOAD_MB = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
+
 export type Extracted =
   | { kind: "text"; text: string }
   | { kind: "pdf-native"; base64: string };
 
 export async function extractFromFile(file: File): Promise<Extracted> {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error(`ไฟล์ใหญ่เกิน ${MAX_UPLOAD_MB}MB — กรุณาแบ่งไฟล์เป็นส่วนย่อยก่อน`);
+  }
+
   const name = file.name.toLowerCase();
   const buf = Buffer.from(await file.arrayBuffer());
 

@@ -3,239 +3,50 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { LEVELS, estimateCost, type DetailLevel } from "@/lib/summarize";
-
-type Phase = "idle" | "analyzing" | "ready" | "summarizing" | "done";
-
-type Analysis = {
-  fileName: string;
-  kind: "text" | "pdf-native";
-  inputTokens: number;
-};
-
-type ChatTurn = { role: "user" | "assistant"; content: string };
-
-type HistoryEntry = {
-  id: string;
-  fileName: string;
-  date: string;
-  level: DetailLevel;
-  summary: string;
-};
-
-const HISTORY_KEY = "saruplem-history";
-const HISTORY_MAX = 30;
-
-function loadHistory(): HistoryEntry[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    return raw ? (JSON.parse(raw) as HistoryEntry[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(entries: HistoryEntry[]) {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, HISTORY_MAX)));
-  } catch {
-    // localStorage เต็ม — ตัดรายการเก่าสุดออกแล้วลองใหม่
-    try {
-      localStorage.setItem(
-        HISTORY_KEY,
-        JSON.stringify(entries.slice(0, Math.max(1, Math.floor(entries.length / 2))))
-      );
-    } catch {
-      /* ปล่อยผ่าน */
-    }
-  }
-}
+import { useHistory } from "./hooks/useHistory";
+import { useSummarize } from "./hooks/useSummarize";
+import { useChat } from "./hooks/useChat";
 
 export default function Home() {
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [file, setFile] = useState<File | null>(null);
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [level, setLevel] = useState<DetailLevel>("standard");
-  const [summary, setSummary] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [viewingHistory, setViewingHistory] = useState(false);
-  const [chat, setChat] = useState<ChatTurn[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatBusy, setChatBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    setHistory(loadHistory());
-  }, []);
+  // useChat ต้องใช้ file (อยู่ใน useSummarize) และ useSummarize ต้องใช้ clearChat
+  // (อยู่ใน useChat) — ตัดวงจรพึ่งพิงด้วย ref ที่ชี้ไปยัง clearChat ปัจจุบัน
+  const clearChatRef = useRef<() => void>(() => {});
+  const clearChat = useCallback(() => clearChatRef.current(), []);
 
-  useEffect(() => {
-    if (chat.length > 0) {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-  }, [chat]);
+  const { history, pushHistory, deleteHistory, openHistory } = useHistory();
+  const {
+    phase,
+    file,
+    analysis,
+    level,
+    summary,
+    error,
+    viewingHistory,
+    setLevel,
+    analyze,
+    summarize,
+    cancelSummarize,
+    reset: resetSummarize,
+    showHistorySummary,
+  } = useSummarize({ pushHistory, clearChat });
+  const chat = useChat(file);
+  clearChatRef.current = chat.clearChat;
 
   const reset = useCallback(() => {
-    setPhase("idle");
-    setFile(null);
-    setAnalysis(null);
-    setSummary("");
-    setError(null);
-    setViewingHistory(false);
-    setChat([]);
-    setChatInput("");
+    resetSummarize();
     if (inputRef.current) inputRef.current.value = "";
-  }, []);
+  }, [resetSummarize]);
 
-  const analyze = useCallback(async (f: File) => {
-    setError(null);
-    setFile(f);
-    setViewingHistory(false);
-    setChat([]);
-    setPhase("analyzing");
-    try {
-      const form = new FormData();
-      form.append("file", f);
-      const res = await fetch("/api/analyze", { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "วิเคราะห์ไฟล์ไม่สำเร็จ");
-      setAnalysis(data);
-      setPhase("ready");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "เกิดข้อผิดพลาด");
-      setPhase("idle");
+  useEffect(() => {
+    if (chat.chat.length > 0) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, []);
-
-  const summarize = useCallback(async () => {
-    if (!file) return;
-    setError(null);
-    setSummary("");
-    setChat([]);
-    setPhase("summarizing");
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    let acc = "";
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("level", level);
-      const res = await fetch("/api/summarize", {
-        method: "POST",
-        body: form,
-        signal: ctrl.signal,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error ?? "การสรุปล้มเหลว");
-      }
-      if (!res.body) throw new Error("ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        acc += decoder.decode(value, { stream: true });
-        setSummary(acc);
-      }
-      setPhase("done");
-      // บันทึกลงประวัติ — ข้ามถ้าสรุปล้มเหลวตั้งแต่ต้น (ได้แต่ข้อความ error)
-      if (!acc.trim() || acc.trimStart().startsWith("> ⚠️")) return;
-      const entry: HistoryEntry = {
-        id: crypto.randomUUID(),
-        fileName: file.name,
-        date: new Date().toISOString(),
-        level,
-        summary: acc,
-      };
-      setHistory((h) => {
-        const next = [entry, ...h].slice(0, HISTORY_MAX);
-        saveHistory(next);
-        return next;
-      });
-    } catch (err) {
-      if (ctrl.signal.aborted) {
-        // ผู้ใช้กดหยุดเอง — เก็บส่วนที่สรุปแล้วไว้ดู แต่ไม่บันทึกลงประวัติ
-        if (acc.trim()) {
-          setSummary(acc + "\n\n> ⏹ หยุดการสรุปก่อนจบ — เนื้อหาด้านบนคือส่วนที่สรุปได้ก่อนยกเลิก");
-          setPhase("done");
-        } else {
-          setPhase("ready");
-        }
-        return;
-      }
-      setError(err instanceof Error ? err.message : "เกิดข้อผิดพลาด");
-      setPhase("ready");
-    } finally {
-      abortRef.current = null;
-    }
-  }, [file, level]);
-
-  const cancelSummarize = useCallback(() => {
-    abortRef.current?.abort();
-  }, []);
-
-  const ask = useCallback(async () => {
-    const q = chatInput.trim();
-    if (!q || !file || chatBusy) return;
-    setChatInput("");
-    setChatBusy(true);
-    const prior = chat;
-    setChat([...prior, { role: "user", content: q }, { role: "assistant", content: "" }]);
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("payload", JSON.stringify({ history: prior, question: q }));
-      const res = await fetch("/api/chat", { method: "POST", body: form });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error ?? "การตอบล้มเหลว");
-      }
-      if (!res.body) throw new Error("ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let acc = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        acc += decoder.decode(value, { stream: true });
-        const answer = acc;
-        setChat((c) => [
-          ...c.slice(0, -1),
-          { role: "assistant", content: answer },
-        ]);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาด";
-      setChat((c) => [
-        ...c.slice(0, -1),
-        { role: "assistant", content: `> ⚠️ ${message}` },
-      ]);
-    } finally {
-      setChatBusy(false);
-    }
-  }, [chat, chatInput, chatBusy, file]);
-
-  const openHistory = useCallback((entry: HistoryEntry) => {
-    setError(null);
-    setFile(null);
-    setAnalysis(null);
-    setSummary(entry.summary);
-    setChat([]);
-    setViewingHistory(true);
-    setPhase("done");
-  }, []);
-
-  const deleteHistory = useCallback((id: string) => {
-    setHistory((h) => {
-      const next = h.filter((e) => e.id !== id);
-      saveHistory(next);
-      return next;
-    });
-  }, []);
+  }, [chat.chat]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -388,7 +199,7 @@ export default function Home() {
                     className="group flex items-center gap-3 rounded-xl border border-ink-line bg-ink-soft/50 px-4 py-3 transition-colors hover:border-amber-deep"
                   >
                     <button
-                      onClick={() => openHistory(entry)}
+                      onClick={() => openHistory(entry, showHistorySummary)}
                       className="flex-1 cursor-pointer text-left"
                     >
                       <p className="text-sm text-cream break-all">
@@ -565,9 +376,9 @@ export default function Home() {
                 </p>
               ) : (
                 <>
-                  {chat.length > 0 && (
+                  {chat.chat.length > 0 && (
                     <div className="mb-4 flex flex-col gap-3">
-                      {chat.map((turn, i) =>
+                      {chat.chat.map((turn, i) =>
                         turn.role === "user" ? (
                           <div
                             key={i}
@@ -582,7 +393,7 @@ export default function Home() {
                           >
                             <div
                               className={`summary-prose !text-sm text-cream [&_h1]:!text-cream [&_h2]:!text-amber [&_h3]:!text-cream [&_strong]:!text-cream [&_p]:!my-1.5 ${
-                                chatBusy && i === chat.length - 1
+                                chat.chatBusy && i === chat.chat.length - 1
                                   ? "stream-caret"
                                   : ""
                               }`}
@@ -598,23 +409,23 @@ export default function Home() {
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      ask();
+                      chat.ask();
                     }}
                     className="flex gap-2"
                   >
                     <input
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
+                      value={chat.chatInput}
+                      onChange={(e) => chat.setChatInput(e.target.value)}
                       placeholder='เช่น "ขยายความบทที่ 3 หน่อย" หรือ "ผู้เขียนสรุปว่ายังไง"'
-                      disabled={chatBusy}
+                      disabled={chat.chatBusy}
                       className="flex-1 rounded-full border border-ink-line bg-ink-soft/70 px-5 py-3 text-sm text-cream placeholder:text-cream-dim/50 outline-none transition-colors focus:border-amber disabled:opacity-50"
                     />
                     <button
                       type="submit"
-                      disabled={chatBusy || !chatInput.trim()}
+                      disabled={chat.chatBusy || !chat.chatInput.trim()}
                       className="cursor-pointer rounded-full bg-amber px-6 py-3 font-display text-sm font-semibold text-ink transition-colors hover:bg-amber-deep disabled:cursor-default disabled:opacity-40"
                     >
-                      {chatBusy ? "กำลังตอบ…" : "ถาม"}
+                      {chat.chatBusy ? "กำลังตอบ…" : "ถาม"}
                     </button>
                   </form>
                   <p className="mt-2 text-xs text-cream-dim/60">

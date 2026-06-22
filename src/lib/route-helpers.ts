@@ -1,0 +1,92 @@
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/extract";
+import { friendlyError } from "@/lib/errors";
+
+/**
+ * ส่วนของ MessageStream ที่ streamToResponse ใช้จริง — แยกเป็น interface
+ * เพื่อไม่ผูกกับ type ลึกของ SDK และให้ test mock ได้ตรงรูป
+ */
+export interface StreamLike {
+  on(event: "text", listener: (delta: string) => void): unknown;
+  finalMessage(): Promise<unknown>;
+  abort(): void;
+}
+
+/**
+ * ข้อผิดพลาดที่รู้สถานะ HTTP ที่จะตอบกลับ — ใช้ในตัว guard ของ route
+ * เพื่อให้ catch กลางส่งสถานะที่ถูกต้อง (400/413/500) แทน 500 เสมอ
+ */
+export class RouteError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "RouteError";
+    this.status = status;
+  }
+}
+
+/** ตรวจว่ามี ANTHROPIC_API_KEY — ไม่งั้นโยน RouteError 500 ก่อนสร้าง client */
+export function requireApiKey(): void {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new RouteError(
+      500,
+      "ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY ในไฟล์ .env.local"
+    );
+  }
+}
+
+/**
+ * ดึงไฟล์จาก form พร้อมเช็คชนิดและขนาด (กัน unbounded upload → memory DoS)
+ * - ไม่มีไฟล์ / ไม่ใช่ File → 400
+ * - ไฟล์ใหญ่เกิน MAX_UPLOAD_BYTES → 413 (เช็คจาก file.size ก่อน buffer)
+ */
+export function requireFile(form: FormData): File {
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    throw new RouteError(400, "ไม่พบไฟล์");
+  }
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new RouteError(
+      413,
+      `ไฟล์ใหญ่เกิน ${MAX_UPLOAD_MB}MB — กรุณาแบ่งไฟล์เป็นส่วนย่อยก่อน`
+    );
+  }
+  return file;
+}
+
+/**
+ * ห่อ MessageStream เป็น streaming Response — รวม logic ที่ซ้ำกันใน
+ * /api/summarize และ /api/chat: subscribe on("text"), await finalMessage,
+ * แปลง error กลางทางเป็น "> ⚠️ ..." และ abort เมื่อ client cancel
+ */
+export function streamToResponse(
+  msgStream: StreamLike,
+  fallbackMsg: string
+): Response {
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        msgStream.on("text", (delta) => {
+          controller.enqueue(encoder.encode(delta));
+        });
+        await msgStream.finalMessage();
+        controller.close();
+      } catch (err) {
+        const message = friendlyError(err, fallbackMsg);
+        controller.enqueue(encoder.encode(`\n\n> ⚠️ ${message}`));
+        controller.close();
+      }
+    },
+    cancel() {
+      msgStream.abort();
+    },
+  });
+
+  return new Response(readable, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-cache",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
