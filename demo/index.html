@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>สรุปเล่ม — เดโม (สรุปหนังสือด้วย AI)</title>
+<meta name="description" content="เดโมเชิงโต้ตอบของ สรุปเล่ม — โยนไฟล์ PDF/DOCX/TXT แล้วให้ AI สรุปเนื้อหาให้ครบทุกบท ไม่ตกหล่น พร้อมถาม-ตอบจากเอกสาร" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Trirong:ital,wght@0,400;0,600;0,700;1,400&family=Anuphan:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ── สรุปเล่ม design system: ink & paper — dark ink bg, amber accent, cream text, paper-grain card ── */
+:root {
+  --ink:          #110f0b;
+  --ink-soft:     #1b1812;
+  --ink-line:     #2e2a20;
+  --paper:        #f4ecda;
+  --paper-edge:   #e2d6ba;
+  --paper-ink:    #2b2317;
+  --paper-ink-soft: #5c5240;
+  --amber:        #e8a33c;
+  --amber-deep:   #b97a1d;
+  --cream:        #ece2cc;
+  --cream-dim:    #a3987f;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; }
+
+body {
+  background-color: var(--ink);
+  color: var(--cream);
+  font-family: "Anuphan", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  line-height: 1.6;
+  min-height: 100%;
+  background-image:
+    radial-gradient(ellipse 900px 480px at 50% -120px, rgba(232,163,60,.16), transparent 70%),
+    radial-gradient(ellipse 600px 400px at 85% 110%, rgba(232,163,60,.05), transparent 70%);
+  background-attachment: fixed;
+}
+
+/* paper grain overlay */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.45;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+}
+
+::selection { background: rgba(232,163,60,.25); }
+
+.font-display { font-family: "Trirong", serif; }
+a { color: var(--amber); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── layout ── */
+.wrap { max-width: 768px; margin: 0 auto; padding: 0 20px; }
+.flex-col { display: flex; flex-direction: column; }
+.flex { display: flex; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+
+/* ── sticky nav ── */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  border-bottom: 1px solid var(--ink-line);
+  background: rgba(17, 15, 11, .8);
+  backdrop-filter: blur(10px);
+}
+.topbar-inner {
+  display: flex; align-items: center; gap: 12px; height: 58px;
+  max-width: 768px; margin: 0 auto; padding: 0 20px;
+}
+.brand {
+  font-family: "Trirong", serif;
+  font-size: 1.15rem; font-weight: 700;
+  color: var(--cream); letter-spacing: .01em;
+  white-space: nowrap;
+}
+.brand-sub {
+  font-family: "Anuphan", sans-serif;
+  font-size: .72rem; font-weight: 400;
+  color: var(--cream-dim); margin-left: 6px; letter-spacing: .12em;
+}
+.badge-demo {
+  font-size: .72rem; font-weight: 600;
+  color: var(--amber);
+  background: rgba(232,163,60,.12);
+  border: 1px solid rgba(232,163,60,.3);
+  padding: 3px 10px; border-radius: 999px;
+}
+.spacer { margin-left: auto; }
+
+/* ── main content ── */
+.main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 0 20px 80px; }
+
+/* ── header ── */
+.page-header {
+  width: 100%; max-width: 768px;
+  padding-top: 64px; padding-bottom: 40px;
+  text-align: center;
+}
+.eyebrow {
+  font-size: .75rem; letter-spacing: .45em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 16px;
+}
+.page-title {
+  font-family: "Trirong", serif;
+  font-size: clamp(2.8rem, 8vw, 4rem);
+  font-weight: 600; color: var(--cream); line-height: 1.15;
+}
+.page-subtitle {
+  margin-top: 16px; color: var(--cream-dim); line-height: 1.75;
+  font-size: .95rem;
+}
+.page-subtitle small { font-size: .8rem; }
+
+/* ── animations ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { opacity: 0; animation: fade-up .7s cubic-bezier(.22,1,.36,1) forwards; }
+.delay-1 { animation-delay: .05s; }
+.delay-2 { animation-delay: .15s; }
+.delay-3 { animation-delay: .25s; }
+.delay-4 { animation-delay: .35s; }
+
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.stream-caret::after {
+  content: "▎";
+  color: var(--amber-deep);
+  animation: caret-blink .9s steps(1) infinite;
+}
+
+@keyframes lamp-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232,163,60,.35); }
+  50%       { box-shadow: 0 0 0 8px rgba(232,163,60,0); }
+}
+.lamp-pulse { animation: lamp-pulse 1.6s ease-in-out infinite; }
+
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.spin-slow { animation: spin-slow 1.2s linear infinite; }
+
+/* ── section card (dark) ── */
+.section-card {
+  width: 100%; max-width: 768px;
+  background: rgba(27,24,18,.7);
+  border: 1px solid var(--ink-line);
+  border-radius: 16px; padding: 32px;
+  margin-bottom: 16px;
+}
+
+/* ── drop zone ── */
+.dropzone {
+  width: 100%; max-width: 768px;
+  border: 2px dashed var(--ink-line);
+  border-radius: 16px;
+  padding: 64px 32px;
+  text-align: center;
+  cursor: pointer;
+  background: rgba(27,24,18,.6);
+  transition: border-color .25s, background .25s, transform .2s;
+  margin-bottom: 16px;
+  outline: none;
+}
+.dropzone:hover, .dropzone.drag-over {
+  border-color: var(--amber-deep);
+  background: rgba(232,163,60,.06);
+  transform: scale(1.005);
+}
+.dropzone-icon {
+  color: var(--amber); margin-bottom: 16px;
+  transition: transform .3s;
+}
+.dropzone:hover .dropzone-icon { transform: translateY(-4px); }
+.dropzone-title {
+  font-family: "Trirong", serif;
+  font-size: 1.25rem; color: var(--cream); margin-bottom: 4px;
+}
+.dropzone-sub { font-size: .88rem; color: var(--cream-dim); }
+
+/* sample badge inside dropzone */
+.sample-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 20px;
+  background: rgba(232,163,60,.1);
+  border: 1px solid rgba(232,163,60,.25);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: .82rem; color: var(--amber);
+  cursor: pointer;
+  transition: background .2s;
+}
+.sample-badge:hover { background: rgba(232,163,60,.18); }
+
+/* ── analyze spinner ── */
+.spinner {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 2px solid var(--ink-line);
+  border-top-color: var(--amber);
+  margin: 0 auto 16px;
+}
+
+/* ── level selector ── */
+.level-label { font-size: .78rem; color: var(--cream-dim); margin-bottom: 8px; }
+.level-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+@media(max-width:560px) { .level-grid { grid-template-columns: 1fr; } }
+.level-btn {
+  border-radius: 12px;
+  border: 1px solid var(--ink-line);
+  background: rgba(17,15,11,.4);
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  color: var(--cream);
+}
+.level-btn:hover { border-color: var(--cream-dim); }
+.level-btn.selected {
+  border-color: var(--amber);
+  background: rgba(232,163,60,.1);
+}
+.level-name {
+  font-family: "Trirong", serif;
+  font-size: 1rem; margin-bottom: 4px;
+}
+.level-btn.selected .level-name { color: var(--amber); }
+.level-desc { font-size: .78rem; color: var(--cream-dim); line-height: 1.5; }
+
+/* ── cost card ── */
+.cost-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-top: 20px; }
+@media(max-width:560px) { .cost-grid { grid-template-columns: repeat(2,1fr); } }
+.cost-item-label { font-size: .74rem; color: var(--cream-dim); margin-bottom: 4px; }
+.cost-item-value {
+  font-family: "Trirong", serif;
+  font-size: 1.3rem; color: var(--cream);
+}
+.cost-item-value.accent { color: var(--amber); }
+.cost-item-sub { font-size: .72rem; color: var(--cream-dim); }
+
+/* ── action buttons ── */
+.btn-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--amber);
+  color: var(--ink);
+  font-family: "Trirong", serif;
+  font-size: .95rem; font-weight: 600;
+  border: 0; border-radius: 999px;
+  padding: 12px 28px; cursor: pointer;
+  transition: background .2s;
+}
+.btn-primary:hover { background: var(--amber-deep); }
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent;
+  color: var(--cream-dim);
+  font-family: "Anuphan", sans-serif;
+  font-size: .88rem;
+  border: 1px solid var(--ink-line); border-radius: 999px;
+  padding: 11px 20px; cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.btn-ghost:hover { border-color: var(--cream-dim); color: var(--cream); }
+.btn-small {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: transparent;
+  color: var(--cream-dim);
+  font-family: "Anuphan", sans-serif;
+  font-size: .78rem;
+  border: 1px solid var(--ink-line); border-radius: 999px;
+  padding: 6px 14px; cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.btn-small:hover { border-color: var(--amber); color: var(--amber); }
+
+/* ── paper card (summary output) ── */
+.paper-card {
+  width: 100%; max-width: 768px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.45), transparent 120px),
+    var(--paper);
+  color: var(--paper-ink);
+  border: 1px solid var(--paper-edge);
+  border-radius: 12px;
+  padding: 44px 52px;
+  box-shadow:
+    0 1px 0 rgba(255,248,230,.5) inset,
+    0 24px 60px -24px rgba(0,0,0,.85),
+    0 4px 14px rgba(0,0,0,.45);
+  margin-bottom: 8px;
+}
+@media(max-width:640px) { .paper-card { padding: 28px 24px; } }
+
+/* ── summary prose (mirrors globals.css) ── */
+.summary-prose {
+  font-family: "Anuphan", sans-serif;
+  line-height: 1.85; font-size: 1rem;
+}
+.summary-prose h1 {
+  font-family: "Trirong", serif;
+  font-size: 1.55rem; font-weight: 700;
+  margin: 2rem 0 .8rem;
+  padding-bottom: .4rem;
+  border-bottom: 2px solid var(--amber-deep);
+  color: var(--paper-ink);
+}
+.summary-prose h1:first-child { margin-top: 0; }
+.summary-prose h2 {
+  font-family: "Trirong", serif;
+  font-size: 1.15rem; font-weight: 600;
+  margin: 1.6rem 0 .5rem;
+  color: var(--amber-deep);
+}
+.summary-prose h3 {
+  font-family: "Trirong", serif;
+  font-size: 1rem; font-weight: 600;
+  margin: 1.2rem 0 .35rem;
+  color: var(--paper-ink);
+}
+.summary-prose p { margin: .65rem 0; }
+.summary-prose ul, .summary-prose ol { margin: .65rem 0; padding-left: 1.5rem; }
+.summary-prose ul { list-style: disc; }
+.summary-prose ol { list-style: decimal; }
+.summary-prose li { margin: .25rem 0; }
+.summary-prose li::marker { color: var(--amber-deep); }
+.summary-prose strong { font-weight: 600; color: #1d1710; }
+.summary-prose blockquote {
+  border-left: 3px solid var(--amber-deep);
+  padding-left: 1rem; margin: 1rem 0;
+  color: var(--paper-ink-soft); font-style: italic;
+}
+.summary-prose hr { border: none; border-top: 1px solid var(--paper-edge); margin: 1.4rem 0; }
+
+/* ── Q&A section ── */
+.qa-eyebrow {
+  font-size: .72rem; letter-spacing: .3em; text-transform: uppercase;
+  color: var(--cream-dim); margin-bottom: 12px;
+}
+.chat-wrap { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.chat-user {
+  align-self: flex-end; max-width: 85%;
+  background: rgba(232,163,60,.15);
+  border: 1px solid rgba(232,163,60,.3);
+  border-radius: 16px 16px 4px 16px;
+  padding: 10px 16px; font-size: .9rem;
+  color: var(--cream);
+}
+.chat-ai {
+  align-self: flex-start; max-width: 95%;
+  background: rgba(27,24,18,.7);
+  border: 1px solid var(--ink-line);
+  border-radius: 16px 16px 16px 4px;
+  padding: 14px 18px; font-size: .88rem;
+  color: var(--cream);
+}
+.chat-form { display: flex; gap: 8px; }
+.chat-input {
+  flex: 1;
+  background: rgba(27,24,18,.7);
+  border: 1px solid var(--ink-line);
+  border-radius: 999px;
+  padding: 12px 20px;
+  font-family: "Anuphan", sans-serif;
+  font-size: .88rem; color: var(--cream);
+  outline: none;
+  transition: border-color .2s;
+}
+.chat-input::placeholder { color: rgba(163,152,127,.5); }
+.chat-input:focus { border-color: var(--amber); }
+.chat-hint { margin-top: 8px; font-size: .74rem; color: rgba(163,152,127,.6); }
+
+/* ── top meta bar (above paper card) ── */
+.summary-meta {
+  width: 100%; max-width: 768px;
+  display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: 10px;
+  margin-bottom: 16px;
+}
+.summary-meta-label { font-size: .85rem; color: var(--cream-dim); }
+.summary-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ── section heading ── */
+.file-name {
+  font-family: "Trirong", serif;
+  font-size: 1.4rem; color: var(--cream);
+  margin: 8px 0 4px; word-break: break-all;
+}
+.ready-eyebrow { font-size: .72rem; letter-spacing: .3em; text-transform: uppercase; color: var(--amber); }
+
+/* ── footer ── */
+.page-footer {
+  text-align: center; font-size: .76rem;
+  color: rgba(163,152,127,.6);
+  padding: 0 20px 40px; margin-top: 48px;
+}
+.page-footer a { color: rgba(163,152,127,.9); }
+
+/* ── demo notice banner ── */
+.demo-notice {
+  width: 100%; max-width: 768px;
+  background: rgba(232,163,60,.07);
+  border: 1px solid rgba(232,163,60,.2);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: .78rem; color: var(--cream-dim);
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+.demo-notice strong { color: var(--amber); font-weight: 600; }
+
+/* ── hidden utility ── */
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ── sticky nav ── -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <span class="brand font-display">สรุปเล่ม<span class="brand-sub">Book Summarizer</span></span>
+    <span class="spacer"></span>
+    <span class="badge-demo">เดโม / Demo</span>
+  </div>
+</header>
+
+<!-- ── main ── -->
+<main class="main">
+
+  <!-- header -->
+  <div class="page-header">
+    <p class="eyebrow fade-up delay-1">── Book Summarizer ──</p>
+    <h1 class="page-title font-display fade-up delay-2">สรุปเล่ม</h1>
+    <p class="page-subtitle fade-up delay-3">
+      โยนหนังสือหรือเอกสารเข้ามา แล้วให้ AI สรุปให้ครบทุกบท ไม่ตกหล่น<br>
+      <small>รองรับ PDF · DOCX · TXT · MD</small>
+    </p>
+  </div>
+
+  <!-- demo notice -->
+  <div class="demo-notice fade-up delay-4" id="demoNotice">
+    <strong>เดโมแบบ static</strong> — ไม่มีการส่งไฟล์ออกไปยังเซิร์ฟเวอร์ ข้อความสรุปด้านล่างเป็นตัวอย่างที่สร้างไว้ล่วงหน้า
+    แอปจริงส่งไฟล์ผ่าน Claude Sonnet 4.6 บนเซิร์ฟเวอร์ (ต้องการ <code>ANTHROPIC_API_KEY</code>)
+  </div>
+
+  <!-- ── PHASE: idle / drop ── -->
+  <div id="phaseIdle" class="fade-up delay-4" style="width:100%;max-width:768px">
+    <div
+      id="dropzone"
+      class="dropzone"
+      tabindex="0"
+      role="button"
+      aria-label="พื้นที่อัปโหลดไฟล์ — คลิกหรือลากไฟล์มาวาง"
+    >
+      <div class="dropzone-icon">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15Z"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 7v6m0 0 2.5-2.5M12 13 9.5 10.5"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <p class="dropzone-title">ลากไฟล์มาวางตรงนี้</p>
+      <p class="dropzone-sub">หรือคลิกเพื่อเลือกไฟล์จากเครื่อง</p>
+      <div class="sample-badge" id="useSampleBtn" role="button" tabindex="0" aria-label="ใช้เอกสารตัวอย่าง">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <path d="M9 12h6m-3-3v6M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"
+            stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        ใช้เอกสารตัวอย่าง (ไม่ต้องอัปโหลดไฟล์จริง)
+      </div>
+    </div>
+    <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md" class="hidden" aria-label="เลือกไฟล์" />
+  </div>
+
+  <!-- ── PHASE: analyzing ── -->
+  <div id="phaseAnalyzing" class="hidden" style="width:100%;max-width:768px">
+    <div class="dropzone" style="cursor:default;border-style:solid;border-color:var(--amber-deep);opacity:.8">
+      <div class="spinner spin-slow"></div>
+      <p style="color:var(--cream-dim)">กำลังอ่านไฟล์และประเมินค่าใช้จ่าย…</p>
+    </div>
+  </div>
+
+  <!-- ── PHASE: ready ── -->
+  <div id="phaseReady" class="section-card hidden">
+    <p class="ready-eyebrow">พร้อมสรุป</p>
+    <p class="file-name" id="readyFileName">ชื่อไฟล์.pdf</p>
+
+    <!-- level selector -->
+    <p class="level-label" style="margin-top:20px">ระดับความละเอียด</p>
+    <div class="level-grid" id="levelGrid">
+      <button class="level-btn" data-level="brief">
+        <p class="level-name">สั้นกระชับ</p>
+        <p class="level-desc">ภาพรวม + ประเด็นสำคัญ อ่านจบใน 5 นาที</p>
+      </button>
+      <button class="level-btn selected" data-level="standard">
+        <p class="level-name">มาตรฐาน</p>
+        <p class="level-desc">สรุปรายบทครบทุกส่วน</p>
+      </button>
+      <button class="level-btn" data-level="detailed">
+        <p class="level-name">ละเอียดมาก</p>
+        <p class="level-desc">เจาะลึกทุกบท เก็บรายละเอียดและตัวอย่าง</p>
+      </button>
+    </div>
+
+    <!-- cost estimate card -->
+    <div class="cost-grid" id="costGrid">
+      <div>
+        <p class="cost-item-label">ความยาว</p>
+        <p class="cost-item-value font-display" id="costTokens">24,182 <span style="font-family:Anuphan;font-size:.78rem;color:var(--cream-dim)">token</span></p>
+      </div>
+      <div>
+        <p class="cost-item-label">ค่าใช้จ่ายโดยประมาณ</p>
+        <p class="cost-item-value accent font-display" id="costThb">฿2.87 <span style="font-family:Anuphan;font-size:.72rem;color:var(--cream-dim)" id="costUsd">($0.080)</span></p>
+      </div>
+      <div>
+        <p class="cost-item-label">วิธีอ่าน</p>
+        <p style="font-size:.88rem;color:var(--cream);margin-top:4px">อ่านจากข้อความที่สกัดได้</p>
+      </div>
+    </div>
+
+    <p style="margin-top:14px;font-size:.72rem;color:rgba(163,152,127,.6)">
+      ตัวเลขข้างต้นเป็นค่าโดยประมาณตาม input token จริง + output token ที่คาดไว้ตามระดับ
+      — ยืนยันก่อนจ่ายจริงบนแอปตัวเต็ม
+    </p>
+
+    <div class="btn-row">
+      <button class="btn-primary lamp-pulse" id="startSummarize">เริ่มสรุป →</button>
+      <button class="btn-ghost" id="resetFromReady">เลือกไฟล์ใหม่</button>
+    </div>
+  </div>
+
+  <!-- ── PHASE: summarizing / done ── -->
+  <div id="phaseDone" class="hidden" style="width:100%;max-width:768px">
+    <div class="summary-meta">
+      <p class="summary-meta-label" id="summaryMetaLabel">กำลังสรุป…</p>
+      <div class="summary-actions" id="summaryActions"></div>
+    </div>
+    <article class="paper-card">
+      <div class="summary-prose" id="summaryContent"></div>
+    </article>
+
+    <!-- Q&A -->
+    <div id="qaSection" class="hidden" style="margin-top:28px">
+      <p class="qa-eyebrow">ถามต่อจากเอกสารนี้</p>
+      <div class="chat-wrap" id="chatWrap"></div>
+      <div class="chat-form">
+        <input
+          class="chat-input"
+          id="chatInput"
+          placeholder='เช่น "ขยายความบทที่ 3 หน่อย" หรือ "ผู้เขียนสรุปว่ายังไง"'
+          aria-label="พิมพ์คำถามจากเอกสาร"
+        />
+        <button class="btn-primary" id="askBtn" style="border-radius:999px;padding:11px 22px;font-size:.88rem">ถาม</button>
+      </div>
+      <p class="chat-hint">
+        คำถามแรกจ่ายค่าอ่านเอกสารเต็ม คำถามถัดไปถูกลง ~90% ด้วย prompt caching
+        (cache อยู่ได้ ~5 นาทีหลังคำถามล่าสุด)
+      </p>
+    </div>
+
+    <div style="margin-top:12px">
+      <button class="btn-ghost" id="resetFromDone">สรุปเล่มใหม่</button>
+    </div>
+  </div>
+
+</main>
+
+<footer class="page-footer">
+  นี่คือ<strong style="color:var(--cream-dim)">เดโมแบบ static</strong> — แอปจริงส่งคำสรุปผ่าน Claude บนเซิร์ฟเวอร์ (ต้องการ <code>ANTHROPIC_API_KEY</code>)<br>
+  <a href="https://github.com/Tasachii/book-summarizer" target="_blank" rel="noopener">ดูซอร์สโค้ดบน GitHub →</a>
+</footer>
+
+<script>
+/* ── canned demo data ── */
+const SAMPLE_FILE = {
+  name: "คิดอย่างระบบ-ดอนเนลลา-เมโดวส์.pdf",
+  inputTokens: 24182,
+};
+
+/* ── pricing (mirrors lib/summarize.ts) ── */
+const PRICING = {
+  inputUsdPerMTok: 3,
+  outputUsdPerMTok: 15,
+  usdToThb: 36,
+};
+const LEVELS = {
+  brief:    { label:"สั้นกระชับ",   estOutputTokens: 3_000  },
+  standard: { label:"มาตรฐาน",      estOutputTokens: 10_000 },
+  detailed: { label:"ละเอียดมาก",   estOutputTokens: 20_000 },
+};
+function estimateCost(inputTokens, level) {
+  const usd = (inputTokens * PRICING.inputUsdPerMTok + LEVELS[level].estOutputTokens * PRICING.outputUsdPerMTok) / 1_000_000;
+  return { usd: usd.toFixed(3), thb: (usd * PRICING.usdToThb).toFixed(2) };
+}
+
+/* ── canned summary (Thai) — simulates standard level ── */
+const CANNED_SUMMARY = `# คิดอย่างระบบ (Thinking in Systems)
+**โดย ดอนเนลลา เมโดวส์ (Donella Meadows)**
+
+---
+
+## ภาพรวม
+
+หนังสือเล่มนี้เป็นคู่มือฉบับพื้นฐานของ **การคิดเชิงระบบ (Systems Thinking)** — วิธีมองโลกที่เน้นความสัมพันธ์ ผลย้อนกลับ และพลวัตที่ซ่อนอยู่เบื้องหลังปัญหาซับซ้อน ผู้เขียนอธิบายว่าทำไมเราถึงมักแก้ปัญหาซ้ำซากโดยไม่ได้ผลลัพธ์ที่ยั่งยืน และเสนอกรอบคิดที่ช่วยให้เห็น "โครงสร้างที่ซ่อนอยู่" ซึ่งเป็นต้นตอที่แท้จริงของพฤติกรรมเหล่านั้น
+
+---
+
+## สรุปรายส่วน
+
+### บทที่ 1 — ความรู้เบื้องต้นเกี่ยวกับระบบ
+
+ระบบประกอบด้วยสามส่วนหลัก: **องค์ประกอบ (elements)**, **การเชื่อมต่อ (interconnections)**, และ **ฟังก์ชัน/วัตถุประสงค์ (function/purpose)** ส่วนที่มองเห็นง่ายที่สุดคือ elements แต่ส่วนที่สำคัญที่สุดมักคือ interconnections และ purpose ซึ่งมองไม่เห็น
+
+> "คุณสมบัติสำคัญที่สุดของระบบมักคือสิ่งที่ยากที่สุดจะสังเกตเห็น"
+
+### บทที่ 2 — วงจรป้อนกลับ (Feedback Loops)
+
+วงจรมีสองประเภทหลัก:
+
+- **Balancing loops (B)** — ทำให้ระบบต้านทานการเปลี่ยนแปลง ดึงกลับสู่เป้าหมาย เช่น ระบบควบคุมอุณหภูมิ, ตลาดที่ปรับราคาเอง
+- **Reinforcing loops (R)** — ขยายการเปลี่ยนแปลง ทำให้เกิดการเติบโตหรือการล่มสลายแบบทบต้น เช่น ดอกเบี้ยทบต้น, การแพร่ระบาดของโรค
+
+วงจรทั้งสองประเภทนี้ทำงานร่วมกันและสร้างพฤติกรรมที่ซับซ้อนในระบบจริง
+
+### บทที่ 3 — Stock และ Flow
+
+**Stock** คือปริมาณที่สะสมได้ (เงิน, ประชากร, ความไว้ใจ) ส่วน **Flow** คืออัตราที่ stock เปลี่ยนแปลง (รายได้, อัตราเกิด, การบริโภค)
+
+กฎสำคัญ: Stock เปลี่ยนแปลงได้เฉพาะผ่าน Flow เท่านั้น — ทำให้ระบบมี **inertia** หรือความเฉื่อย การเปลี่ยนแปลงในระบบจริงจึงใช้เวลาเสมอ ต่อให้เปลี่ยน flow ได้ทันที
+
+### บทที่ 4 — พฤติกรรมที่เกิดซ้ำ (Archetypes)
+
+ผู้เขียนระบุ **archetype** ของระบบที่พบบ่อยในองค์กรและสังคม:
+
+1. **Limits to Growth** — การเติบโตชะลอตัวเมื่อกระทบข้อจำกัด
+2. **Shifting the Burden** — แก้ปัญหาด้วยทางลัด ทำให้รากปัญหาแย่ลงในระยะยาว
+3. **Tragedy of the Commons** — ทรัพยากรส่วนกลางถูกใช้จนหมดเพราะทุกคนเป็น rational actor
+4. **Escalation** — การแข่งขันที่วนไปไม่สิ้นสุด
+
+### บทที่ 5 — จุดแทรกแซงในระบบ (Leverage Points)
+
+เมโดวส์เสนอ **12 จุดแทรกแซง** เรียงจากอ่อนไปแรง:
+
+- ปรับตัวเลข (อ่อน) เช่น ภาษี, มาตรฐาน
+- ปรับโครงสร้างวงจร
+- เปลี่ยนเป้าหมายของระบบ
+- เปลี่ยน **กระบวนทัศน์ (paradigm)** ที่เป็นฐานของระบบ (แรงที่สุด)
+
+> "กระบวนทัศน์คือแหล่งของระบบ จากกระบวนทัศน์กำเนิดเป้าหมาย กฎเกณฑ์ และโครงสร้าง"
+
+### บทที่ 6 — ใช้ชีวิตอย่างเป็นระบบ
+
+บทสรุปของหนังสือชวนให้ผู้อ่าน: ฟังสัญญาณของระบบ, คิดระยะยาว, เคารพความไม่แน่นอน, ขยายขอบเขตความห่วงใย และ "ตกหลุมรักความซับซ้อน" แทนที่จะพยายามควบคุมมันอย่างเบ็ดเสร็จ
+
+---
+
+## ประเด็นสำคัญและข้อคิด
+
+- ปัญหาส่วนใหญ่ซ้ำซากเพราะเราแก้ที่ **symptom** ไม่ใช่ **structure**
+- ระบบมีความฉลาดในตัวเอง — พยายามควบคุมทุกอย่างมักย้อนกลับมาทำร้ายเรา
+- Delay (ความล่าช้าในระบบ) คือต้นตอหลักของการ oscillate และความไม่เสถียร
+- จุดแทรกแซงที่แรงที่สุดคือการเปลี่ยน mindset — ไม่ใช่การปรับตัวเลข
+- ความโปร่งใสของข้อมูลและ feedback ที่รวดเร็วคือปัจจัยสำคัญในการออกแบบระบบที่ดี
+
+---
+
+## ข้อมูลอ้างอิงสำคัญ
+
+| หัวข้อ | รายละเอียด |
+|---|---|
+| ผู้เขียน | ดอนเนลลา เมโดวส์ (Donella H. Meadows) |
+| แนวคิดหลัก | Systems Thinking, Feedback Loops, Leverage Points |
+| จำนวน Archetype | 12 รูปแบบ (ในบทที่ 4) |
+| จำนวน Leverage Points | 12 จุด (เรียงอ่อน→แรง) |
+| คำสำคัญ | Stock, Flow, Balancing loop, Reinforcing loop, Paradigm |
+`;
+
+/* ── canned Q&A map ── */
+const QA_MAP = [
+  { q: ["leverage", "แทรกแซง", "จุด"],       a: "เมโดวส์เสนอ **12 จุดแทรกแซง** เรียงจากอ่อนถึงแรง จุดที่แรงที่สุดคือการเปลี่ยน **กระบวนทัศน์ (paradigm)** ส่วนจุดที่อ่อนที่สุดคือการปรับตัวเลข เช่น ภาษีหรือมาตรฐาน" },
+  { q: ["feedback", "วงจร", "ป้อนกลับ"],      a: "วงจรมีสองแบบ: **Balancing loops** ต้านทานการเปลี่ยนแปลงและดึงระบบกลับสู่สมดุล ส่วน **Reinforcing loops** ขยายการเปลี่ยนแปลงแบบทบต้น — ทั้งสองทำงานร่วมกันในระบบจริง" },
+  { q: ["stock", "flow", "สะสม"],             a: "**Stock** คือปริมาณที่สะสมได้ (เงิน, ประชากร, ความไว้ใจ) ส่วน **Flow** คืออัตราเปลี่ยนแปลง Stock เปลี่ยนได้เฉพาะผ่าน Flow ทำให้ระบบมีความเฉื่อย การเปลี่ยนแปลงจึงใช้เวลาเสมอ" },
+  { q: ["archetype", "รูปแบบ", "ซ้ำ"],        a: "ตัวอย่าง archetype ที่พบบ่อย: Limits to Growth, Shifting the Burden (แก้ปัญหาด้วยทางลัด), Tragedy of the Commons (ทรัพยากรส่วนกลางถูกใช้จนหมด) และ Escalation (การแข่งขันที่วนไม่สิ้นสุด)" },
+  { q: ["delay", "ล่าช้า", "oscillate"],       a: "**Delay** หรือความล่าช้าในระบบคือต้นตอหลักของการ oscillate (แกว่ง) และความไม่เสถียร เพราะผู้ตัดสินใจตอบสนองต่อข้อมูลที่ล้าสมัย ทำให้แก้มากหรือน้อยเกินไปเสมอ" },
+  { q: ["paradigm", "กระบวนทัศน์", "mindset"], a: "กระบวนทัศน์คือ **แหล่งกำเนิดของระบบ** — จากกระบวนทัศน์กำเนิดเป้าหมาย กฎเกณฑ์ และโครงสร้างทั้งหมด การเปลี่ยน paradigm จึงเป็นจุดแทรกแซงที่แรงที่สุด แต่ก็ยากที่สุด" },
+];
+function findAnswer(q) {
+  const lower = q.toLowerCase();
+  for (const item of QA_MAP) {
+    if (item.q.some(kw => lower.includes(kw))) return item.a;
+  }
+  return "ไม่พบข้อมูลที่ตรงกับคำถามในเอกสารตัวอย่าง — ลองถามเรื่อง feedback loops, leverage points, stock & flow, หรือ archetype";
+}
+
+/* ── state ── */
+let phase = "idle";       // idle | analyzing | ready | summarizing | done
+let level = "standard";
+let summaryTimer = null;
+let summaryPos = 0;
+let chatHistory = [];
+
+/* ── helpers ── */
+const $ = id => document.getElementById(id);
+function show(...ids) { ids.forEach(id => $(id).classList.remove("hidden")); }
+function hide(...ids) { ids.forEach(id => $(id).classList.add("hidden")); }
+
+function updateCostDisplay() {
+  const cost = estimateCost(SAMPLE_FILE.inputTokens, level);
+  $("costTokens").innerHTML = `${SAMPLE_FILE.inputTokens.toLocaleString()} <span style="font-family:Anuphan;font-size:.78rem;color:var(--cream-dim)">token</span>`;
+  $("costThb").innerHTML = `฿${cost.thb} <span style="font-family:Anuphan;font-size:.72rem;color:var(--cream-dim)" id="costUsd">($${cost.usd})</span>`;
+}
+
+/* markdown → html (minimal, no deps) */
+function mdToHtml(md) {
+  let h = md
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    // headings
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+    // hr
+    .replace(/^---$/gm, "<hr>")
+    // blockquote
+    .replace(/^&gt; (.+)$/gm, "<blockquote>$1</blockquote>")
+    // bold
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    // italic
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    // inline code
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    // tables (basic)
+    .replace(/^\|(.+)\|$/gm, (line) => {
+      if (/^[\|\s\-:]+$/.test(line)) return "";
+      const cells = line.split("|").slice(1,-1).map(c => `<td>${c.trim()}</td>`).join("");
+      return `<tr>${cells}</tr>`;
+    })
+    // ul
+    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    // wrap li in ul
+    .replace(/(<li>.*<\/li>(\n|$))+/g, m => `<ul>${m}</ul>`)
+    // wrap table rows
+    .replace(/(<tr>.*<\/tr>(\n|$))+/g, m => `<table>${m}</table>`)
+    // paragraphs: blank-line separated text blocks
+    .replace(/\n{2,}/g, "\n\n")
+    .split("\n\n")
+    .map(block => {
+      block = block.trim();
+      if (!block) return "";
+      if (/^<(h[1-6]|ul|ol|li|blockquote|hr|table|tr)/.test(block)) return block;
+      return `<p>${block.replace(/\n/g, " ")}</p>`;
+    })
+    .join("\n");
+  return h;
+}
+
+/* streaming simulation */
+function streamSummary() {
+  const tokens = CANNED_SUMMARY.split("");
+  const el = $("summaryContent");
+  el.innerHTML = "";
+  el.classList.add("stream-caret");
+  summaryPos = 0;
+
+  const CHUNK = 6; // chars per tick — feels like real streaming
+  const TICK  = 28; // ms
+
+  summaryTimer = setInterval(() => {
+    summaryPos = Math.min(summaryPos + CHUNK, tokens.length);
+    const partial = CANNED_SUMMARY.slice(0, summaryPos);
+    el.innerHTML = mdToHtml(partial);
+    // scroll paper card into view gently
+    el.parentElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    if (summaryPos >= tokens.length) {
+      clearInterval(summaryTimer);
+      summaryTimer = null;
+      el.classList.remove("stream-caret");
+      onSummaryDone();
+    }
+  }, TICK);
+}
+
+function onSummaryDone() {
+  phase = "done";
+  $("summaryMetaLabel").textContent = `สรุปเสร็จแล้ว · ${SAMPLE_FILE.name}`;
+  $("summaryActions").innerHTML = `
+    <button class="btn-small" id="copyBtn">คัดลอก</button>
+    <button class="btn-small" id="downloadBtn">ดาวน์โหลด .md</button>
+  `;
+  show("qaSection");
+
+  $("copyBtn").onclick = () => {
+    navigator.clipboard.writeText(CANNED_SUMMARY).then(() => {
+      $("copyBtn").textContent = "คัดลอกแล้ว ✓";
+      setTimeout(() => { $("copyBtn").textContent = "คัดลอก"; }, 1500);
+    }).catch(() => {
+      // fallback for non-https
+      const ta = document.createElement("textarea");
+      ta.value = CANNED_SUMMARY;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      $("copyBtn").textContent = "คัดลอกแล้ว ✓";
+      setTimeout(() => { $("copyBtn").textContent = "คัดลอก"; }, 1500);
+    });
+  };
+
+  $("downloadBtn").onclick = () => {
+    const blob = new Blob([CANNED_SUMMARY], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `สรุป-${SAMPLE_FILE.name.replace(/\.[^.]+$/, "")}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+}
+
+/* ── phase transitions ── */
+function goAnalyzing() {
+  phase = "analyzing";
+  hide("phaseIdle");
+  show("phaseAnalyzing");
+
+  setTimeout(() => {
+    hide("phaseAnalyzing");
+    goReady();
+  }, 1600);
+}
+
+function goReady() {
+  phase = "ready";
+  $("readyFileName").textContent = SAMPLE_FILE.name;
+  updateCostDisplay();
+  show("phaseReady");
+}
+
+function goSummarizing() {
+  phase = "summarizing";
+  hide("phaseReady");
+  show("phaseDone");
+  hide("qaSection");
+  $("summaryMetaLabel").innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px">
+    <span class="spinner spin-slow" style="width:14px;height:14px;border-width:1.5px;display:inline-block"></span>
+    กำลังสรุป «${SAMPLE_FILE.name}» …
+  </span>`;
+  $("summaryActions").innerHTML = `<button class="btn-small" id="cancelBtn" style="color:rgba(239,68,68,.8);border-color:rgba(239,68,68,.3)">⏹ หยุด</button>`;
+
+  $("cancelBtn").onclick = () => {
+    if (summaryTimer) { clearInterval(summaryTimer); summaryTimer = null; }
+    $("summaryContent").classList.remove("stream-caret");
+    onSummaryDone();
+  };
+
+  streamSummary();
+}
+
+function reset() {
+  if (summaryTimer) { clearInterval(summaryTimer); summaryTimer = null; }
+  phase = "idle";
+  chatHistory = [];
+  $("summaryContent").innerHTML = "";
+  $("summaryContent").classList.remove("stream-caret");
+  $("chatWrap").innerHTML = "";
+  $("chatInput").value = "";
+  hide("phaseAnalyzing", "phaseReady", "phaseDone");
+  show("phaseIdle");
+}
+
+/* ── level selector ── */
+function setLevel(l) {
+  level = l;
+  document.querySelectorAll(".level-btn").forEach(btn => {
+    btn.classList.toggle("selected", btn.dataset.level === l);
+  });
+  updateCostDisplay();
+}
+
+/* ── Q&A ── */
+function renderChatMsg(role, text) {
+  const div = document.createElement("div");
+  div.className = role === "user" ? "chat-user" : "chat-ai";
+  if (role === "user") {
+    div.textContent = text;
+  } else {
+    div.innerHTML = mdToHtml(text);
+  }
+  $("chatWrap").appendChild(div);
+  div.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  return div;
+}
+
+function ask() {
+  const q = $("chatInput").value.trim();
+  if (!q) return;
+  $("chatInput").value = "";
+  chatHistory.push({ role: "user", content: q });
+  renderChatMsg("user", q);
+
+  // typing indicator
+  const typingEl = document.createElement("div");
+  typingEl.className = "chat-ai stream-caret";
+  typingEl.innerHTML = "&nbsp;";
+  $("chatWrap").appendChild(typingEl);
+
+  // simulate 800ms "thinking"
+  setTimeout(() => {
+    typingEl.remove();
+    const answer = findAnswer(q);
+    chatHistory.push({ role: "assistant", content: answer });
+    renderChatMsg("assistant", answer);
+  }, 800);
+}
+
+/* ── event bindings ── */
+function bindAll() {
+  // drop zone — click / drag / keyboard
+  const dz = $("dropzone");
+  dz.onclick = (e) => {
+    if (e.target === $("useSampleBtn") || $("useSampleBtn").contains(e.target)) return;
+    $("fileInput").click();
+  };
+  dz.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") dz.click(); };
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("drag-over"); };
+  dz.ondragleave = () => dz.classList.remove("drag-over");
+  dz.ondrop = (e) => {
+    e.preventDefault();
+    dz.classList.remove("drag-over");
+    const f = e.dataTransfer.files?.[0];
+    if (f) goAnalyzing(); // ignore real file in demo — just mock it
+  };
+
+  $("fileInput").onchange = (e) => {
+    if (e.target.files?.[0]) goAnalyzing();
+  };
+
+  const sampleBtn = $("useSampleBtn");
+  sampleBtn.onclick = (e) => { e.stopPropagation(); goAnalyzing(); };
+  sampleBtn.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); goAnalyzing(); } };
+
+  // level buttons
+  document.querySelectorAll(".level-btn").forEach(btn => {
+    btn.onclick = () => setLevel(btn.dataset.level);
+  });
+
+  $("startSummarize").onclick = goSummarizing;
+  $("resetFromReady").onclick = reset;
+  $("resetFromDone").onclick = reset;
+
+  $("askBtn").onclick = ask;
+  $("chatInput").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } };
+}
+
+bindAll();
+</script>
+</body>
+</html>

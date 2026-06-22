@@ -1,100 +1,157 @@
-# สรุปเล่ม (Sarup Lem) — AI Book Summarizer
+# สรุปเล่ม（サルップレム）— Thai document summarizer
 
-![Home screen](docs/screenshots/home.png)
+สรุปเล่ม ("Summarize the Book") turns large documents into complete, structured Thai
+summaries. Drop in a PDF, DOCX, TXT, or Markdown file — including scanned/image-only PDFs
+— and the app counts the exact tokens, shows the estimated price in Thai Baht, and waits
+for you to confirm before spending anything. Once you confirm, a chapter-by-chapter summary
+streams onto the page in real time. Afterwards, a Q&A chat lets you ask follow-up questions
+about the document; each question after the first costs roughly 90% less because the
+document is held in a server-side prompt cache. Finished summaries are saved to
+`localStorage` in your browser — free to reopen, works offline — and can be exported as
+Markdown files. Documents are processed in memory per request and never stored on the
+server.
 
-## Project Description
+---
 
-- Project by: Phasathat Jaruchitsophon
-- Project Type: Web Application (AI Document Summarizer)
+## Screenshots
 
-สรุปเล่ม ("Summarize the Book") is a Thai-language web application that summarizes large documents and books without missing content. Users drop in a PDF, DOCX, TXT, or Markdown file; the app counts the document's tokens and shows an estimated cost in Thai Baht **before** any AI call is made, then streams a complete chapter-by-chapter summary in real time using Claude Sonnet 4.6. After summarizing, users can chat with the document to ask follow-up questions (powered by prompt caching, so repeated questions on the same document cost ~90% less), browse past summaries from local history, and export results as Markdown.
+| Home — upload · cost preview · streaming summary |
+| --- |
+| ![สรุปเล่ม — home screen](docs/screenshots/home.png) |
+
+---
+
+## What it is
+
+สรุปเล่ม is a single-machine Next.js web app. The browser never talks to the Anthropic API
+directly; the three route handlers (`/api/analyze`, `/api/summarize`, `/api/chat`) are the
+only place `ANTHROPIC_API_KEY` exists, and the key never leaves the server.
+
+- **Stack** — Next.js 16 · React 19 · TypeScript · Tailwind 4 · @anthropic-ai/sdk · unpdf · mammoth · react-markdown
+
+| Topic | Decision |
+| --- | --- |
+| Privacy | Documents are processed in memory per request; nothing is stored server-side. |
+| History | `localStorage` only (`saruplem-history`, max 30 entries) — stays in your browser, works offline. |
+| Cost transparency | `/api/analyze` calls `count_tokens` (free) so you see the exact price before any paid call. |
+| Prompt caching | The document sits in the first user turn with a `cache_control` marker; follow-up questions reuse the cached prefix at ~10% of the normal input price. |
+| Stateless server | The file is re-sent each request — no server upload store, no database. |
+| Rate limiting | `src/proxy.ts` (Next.js 16 renamed `middleware` → `proxy`) caps each IP at 10 requests/minute across the three paid routes, in-process. |
+
+---
+
+## Security — deploy this carefully
+
+`/api/analyze`, `/api/summarize`, and `/api/chat` call the Anthropic API and spend real
+credits on every request. The built-in rate limiter in `src/proxy.ts` is a single-instance
+in-memory guard — it does **not** cover multi-instance or serverless deployments (e.g.
+Vercel), where each instance keeps its own counter.
+
+Before any public deployment you must add at least one of:
+
+- A distributed rate limiter (e.g. Upstash `@upstash/ratelimit`) keyed by IP, **or**
+- An auth gate / shared-secret header in front of the routes.
+
+Additionally: uploads are capped server-side at 25 MB (`MAX_UPLOAD_BYTES`). A
+reverse-proxy body-size limit is also advisable.
 
 ---
 
 ## Installation
 
-Requirements: **Node.js 20+ (CI uses 22)** and **npm** (download from https://nodejs.org), plus an **Anthropic API key** (create one at https://platform.claude.com).
+**Requirements** — [Node 22](https://nodejs.org) · npm · an [Anthropic API key](https://platform.claude.com)
 
-To clone this project:
-
-```sh
-git clone https://github.com/Tasachii/book-summarizer.git
-cd book-summarizer
+**Mac / Linux**
+```bash
+git clone https://github.com/Tasachii/Sarup-Lem.git
+cd Sarup-Lem
+cp .env.example .env.local   # then open .env.local and paste your key
+npm install
 ```
 
-To install dependencies and create your environment file:
-
-Windows:
-
+**Windows**
 ```bat
+git clone https://github.com/Tasachii/Sarup-Lem.git
+cd Sarup-Lem
+copy .env.example .env.local  :: then open .env.local and paste your key
 npm install
-copy .env.example .env.local
 ```
 
-Mac:
-
-```sh
-npm install
-cp .env.example .env.local
-```
-
-Then open `.env.local` in any text editor and paste your API key:
+Open `.env.local` in any text editor and set:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
----
-
-## Running Guide
-
-Development mode (hot reload) — same command on Windows and Mac:
-
-```sh
-npm run dev
-```
-
-Production mode:
-
-```sh
-npm run build
-npm run start
-```
-
-Then open **http://localhost:3000** in your browser.
-
-To run the test suite (works without an API key — fixtures are included in `test/fixtures/`):
-
-```sh
-npm test            # Vitest unit + route + component tests
-npm run test:watch  # watch mode
-npm run test:cov    # with coverage report (lines 80 / funcs 85 / branches 75 gate)
-```
-
-The legacy extraction smoke-script is still available via `npm run test:extract`.
+The key is server-only — it is never sent to the browser.
 
 ---
 
-## ⚠️ Deploying: do NOT expose these endpoints publicly without rate limiting
+## Running
 
-**The `/api/analyze`, `/api/summarize`, and `/api/chat` routes call the Anthropic API and spend real credits on every request.** `analyze` also performs a billable `countTokens` round-trip per upload, and `chat` re-sends the document each turn (kept cheap only by prompt caching). If these routes are reachable by the public internet without throttling, anyone can drain your account's credits.
-
-This repo ships a **simple in-memory per-IP rate limiter** in `src/proxy.ts` (Next.js 16 renamed `middleware` → `proxy`) that caps each IP to **10 requests/minute** across the three paid routes. This is a single-instance safeguard for self-hosting; **it does NOT cover multi-instance / serverless deployments** (e.g. Vercel), where each instance keeps its own counter.
-
-Before any public deployment you **must** add one of:
-
-- A distributed rate limiter (e.g. Upstash `@upstash/ratelimit`) keyed by IP, **or**
-- An auth gate / shared-secret header in front of the routes, **and**
-- A reverse-proxy / `Content-Length` body-size cap (uploads are also bounded server-side to **25 MB** via `MAX_UPLOAD_BYTES`).
+```bash
+npm run dev          # Next.js dev server with hot reload on :3000
+npm run build        # type-check + production build
+npm run start        # serve the production build on :3000
+npm test             # Vitest unit + route + component tests (145 tests, no API key needed)
+npm run test:watch   # watch mode
+npm run test:cov     # coverage report (lines 80 / funcs 85 / branches 75 gate)
+npm run test:extract # offline extraction smoke-script (7 file-type cases)
+```
 
 ---
 
-## Tutorial / Usage
+## Usage
 
-1. **Upload** — Drag a `.pdf`, `.docx`, `.txt`, or `.md` file onto the drop zone (or click to browse).
-2. **Review the cost** — The app counts tokens and shows the estimated price in THB/USD. Nothing is charged yet.
-3. **Pick a detail level** — *Brief* (overview + key points, cheapest), *Standard* (full chapter-by-chapter summary), or *Detailed* (deep dive with examples and quotes). The cost estimate updates as you switch.
-4. **Summarize** — Press "เริ่มสรุป" and watch the summary stream onto the paper card in real time.
-5. **Ask follow-up questions** — Type questions in the chat box below the finished summary (e.g. "ขยายความบทที่ 3"). The first question pays the full document read; later questions are ~90% cheaper thanks to prompt caching.
-6. **Save / revisit** — Copy the summary, download it as `.md`, or reopen it later from the history list on the home screen (stored in your browser, free to re-read).
+1. **Upload (1 action).** Drag a `.pdf`, `.docx`, `.txt`, or `.md` file onto the drop zone, or click to browse. Scanned/image-only PDFs are supported.
+2. **Review the cost.** The app counts tokens and shows the estimated price in THB and USD. Nothing is charged yet.
+3. **Pick a detail level.** Choose *Brief* (overview + key bullets, cheapest), *Standard* (full chapter-by-chapter), or *Detailed* (deep dive with examples and quotes). The price estimate updates instantly as you switch.
+4. **Summarize.** Press **เริ่มสรุป** and watch the summary stream onto the paper card in real time. Press **⏹ หยุด** at any time to abort — spending stops, the partial summary stays visible but is not saved.
+5. **Ask follow-up questions.** Type into the chat box below the finished summary — e.g. "ขยายความบทที่ 3". The first question pays full price; later questions within 5 minutes are ~90% cheaper.
+6. **Save or revisit.** Press **คัดลอก** to copy, or download as `.md`. Past summaries appear on the home screen under the drop zone — tap any entry to reopen it for free.
+7. **Start over.** Press **สรุปเล่มใหม่** to return to the upload screen.
 
+---
+
+## Architecture
+
+```
+Browser (page.tsx)
+  │  FormData: file                       ┌──────────────────────────┐
+  ├──────────► /api/analyze ─────────────►│                          │
+  │  FormData: file + level               │   Anthropic API          │
+  ├──────────► /api/summarize ───────────►│   Claude Sonnet 4.6      │
+  │  FormData: file + history + question  │   (count_tokens /        │
+  ├──────────► /api/chat ────────────────►│    messages.stream)      │
+  │                                       └──────────────────────────┘
+  └── localStorage: saruplem-history (client-only, max 30 entries)
+```
+
+```
+src/
+├── proxy.ts                  # per-IP rate limiter (Next.js 16 proxy)
+├── lib/
+│   ├── extract.ts            # extractFromFile() — PDF / DOCX / TXT / MD → text or base64
+│   ├── summarize.ts          # model id, pricing, detail levels, prompts, estimateCost()
+│   └── errors.ts             # friendlyError() — API errors → Thai messages
+└── app/
+    ├── page.tsx              # entire client UI — state machine: idle → analyzing → ready → summarizing → done
+    └── api/
+        ├── analyze/route.ts  # token count + validation (the price-tag step)
+        ├── summarize/route.ts# streaming summary
+        └── chat/route.ts     # streaming Q&A with prompt caching
+```
+
+---
+
+## Configuration
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | — | Required. Server-side only. Set in `.env.local`. |
+
+---
+
+## License
+
+MIT © Phasathat Jaruchitsophon
