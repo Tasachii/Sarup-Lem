@@ -1,8 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractFromFile, toUserContent } from "@/lib/extract";
-import { MODEL, MAX_INPUT_TOKENS, SUMMARY_INSTRUCTION } from "@/lib/summarize";
+import { SUMMARY_INSTRUCTION, SYSTEM_PROMPT } from "@/lib/summarize";
 import { friendlyError } from "@/lib/errors";
-import { RouteError, requireApiKey, requireFile } from "@/lib/route-helpers";
+import {
+  RouteError,
+  requireApiKey,
+  requireFile,
+  assertWithinContextLimit,
+} from "@/lib/route-helpers";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -17,20 +22,11 @@ export async function POST(request: Request) {
     const extracted = await extractFromFile(file);
     const client = new Anthropic();
 
-    const count = await client.messages.countTokens({
-      model: MODEL,
+    // นับ input จริงที่จะส่งตอนสรุป: เอกสาร + คำสั่ง + system prompt (กันประเมินราคาต่ำไป)
+    const inputTokens = await assertWithinContextLimit(client, {
       messages: [{ role: "user", content: toUserContent(extracted, SUMMARY_INSTRUCTION) }],
+      system: SYSTEM_PROMPT,
     });
-
-    const inputTokens = count.input_tokens;
-    if (inputTokens > MAX_INPUT_TOKENS) {
-      return Response.json(
-        {
-          error: `เอกสารนี้ยาว ${inputTokens.toLocaleString()} token เกินขีดจำกัด 1M token ของโมเดล — กรุณาแบ่งไฟล์เป็นส่วนย่อยก่อน`,
-        },
-        { status: 413 }
-      );
-    }
 
     // ค่าใช้จ่ายคำนวณฝั่ง client ตามระดับความละเอียดที่เลือก (estimateCost ใน lib/summarize)
     return Response.json({

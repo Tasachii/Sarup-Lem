@@ -48,6 +48,7 @@ beforeEach(() => {
   mock.ctor.mockClear();
   mock.stream.mockReset();
   mock.countTokens.mockReset();
+  mock.countTokens.mockResolvedValue({ input_tokens: 100 });
   mock.stream.mockImplementation(() => fakeStream({ chunks: ["x"] }));
   vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
 });
@@ -110,6 +111,32 @@ describe("/api/summarize", () => {
     const res = await POST(postReq(buildForm()));
     expect(res.status).toBe(500);
     expect(mock.ctor).not.toHaveBeenCalled();
+  });
+
+  it("413 when input exceeds MAX_INPUT_TOKENS — stream never called (no paid spend)", async () => {
+    mock.countTokens.mockResolvedValue({ input_tokens: 950_001 });
+    const res = await POST(postReq(buildForm()));
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toContain((950_001).toLocaleString());
+    expect(mock.stream).not.toHaveBeenCalled();
+  });
+
+  it("boundary: exactly 950_000 → streams (strict >)", async () => {
+    mock.countTokens.mockResolvedValue({ input_tokens: 950_000 });
+    const res = await POST(postReq(buildForm()));
+    expect(res.status).toBe(200);
+    expect(mock.stream).toHaveBeenCalledOnce();
+  });
+
+  it("guard counts tokens with model + system before streaming", async () => {
+    await POST(postReq(buildForm()));
+    expect(mock.countTokens).toHaveBeenCalledOnce();
+    const arg = mock.countTokens.mock.calls[0][0] as {
+      model: string;
+      system: string;
+    };
+    expect(arg.model).toBe("claude-sonnet-4-6");
+    expect(typeof arg.system).toBe("string");
   });
 
   describe("level fallback (isLevel) controls max_tokens", () => {

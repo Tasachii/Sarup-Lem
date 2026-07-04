@@ -1,5 +1,7 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/extract";
 import { friendlyError } from "@/lib/errors";
+import { MODEL, MAX_INPUT_TOKENS } from "@/lib/summarize";
 
 /**
  * ส่วนของ MessageStream ที่ streamToResponse ใช้จริง — แยกเป็น interface
@@ -32,6 +34,30 @@ export function requireApiKey(): void {
       "ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY ในไฟล์ .env.local"
     );
   }
+}
+
+/**
+ * เช็คว่า input (เอกสาร + ประวัติ + system) ไม่เกิน context 1M ของโมเดล *ก่อน* เรียกจริง
+ * — count_tokens ฟรี จึงกันไว้ที่ทุก paid route ได้ ไม่ใช่แค่ /api/analyze
+ * (กันคนยิงตรงมา /summarize หรือ /chat โดยข้ามขั้นประเมินราคา)
+ * เกินขีดจำกัด → โยน RouteError 413 (รูปแบบ error เดียวกับที่ /api/analyze ใช้)
+ * คืนค่า input_tokens ให้ผู้เรียกใช้ต่อได้ (เช่น /api/analyze ส่งกลับไปโชว์ราคา)
+ */
+export async function assertWithinContextLimit(
+  client: Anthropic,
+  params: { messages: Anthropic.MessageParam[]; system?: string }
+): Promise<number> {
+  const { input_tokens } = await client.messages.countTokens({
+    model: MODEL,
+    ...params,
+  });
+  if (input_tokens > MAX_INPUT_TOKENS) {
+    throw new RouteError(
+      413,
+      `เอกสารนี้ยาว ${input_tokens.toLocaleString()} token เกินขีดจำกัด 1M token ของโมเดล — กรุณาแบ่งไฟล์เป็นส่วนย่อยก่อน`
+    );
+  }
+  return input_tokens;
 }
 
 /**

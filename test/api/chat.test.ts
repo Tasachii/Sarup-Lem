@@ -47,6 +47,7 @@ beforeEach(() => {
   mock.ctor.mockClear();
   mock.stream.mockReset();
   mock.countTokens.mockReset();
+  mock.countTokens.mockResolvedValue({ input_tokens: 100 });
   mock.stream.mockImplementation(() => fakeStream({ chunks: ["ans"] }));
   vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
 });
@@ -179,6 +180,27 @@ describe("/api/chat — B3 abuse caps", () => {
     const huge = "a".repeat(MAX_TURN_CONTENT_CHARS + 1);
     const res = await POST(postReq({ history: [], question: huge }));
     expect(res.status).toBe(400);
+  });
+});
+
+describe("/api/chat — context-limit guard", () => {
+  it("413 when doc + history exceeds MAX_INPUT_TOKENS — stream never called", async () => {
+    mock.countTokens.mockResolvedValue({ input_tokens: 950_001 });
+    const res = await POST(postReq({ history: [], question: "Q" }));
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toContain((950_001).toLocaleString());
+    expect(mock.stream).not.toHaveBeenCalled();
+  });
+
+  it("counts tokens with model + QA system before streaming", async () => {
+    await POST(postReq({ history: [], question: "Q" }));
+    expect(mock.countTokens).toHaveBeenCalledOnce();
+    const arg = mock.countTokens.mock.calls[0][0] as {
+      model: string;
+      system: string;
+    };
+    expect(arg.model).toBe("claude-sonnet-4-6");
+    expect(typeof arg.system).toBe("string");
   });
 });
 

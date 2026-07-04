@@ -7,6 +7,7 @@ import {
   requireApiKey,
   requireFile,
   streamToResponse,
+  assertWithinContextLimit,
 } from "@/lib/route-helpers";
 
 export const runtime = "nodejs";
@@ -79,6 +80,12 @@ export async function POST(request: Request) {
     if (history.length > 0) {
       messages.push({ role: "user", content: question });
     }
+
+    // กัน paid call ถ้ายิงตรงมาแล้ว เอกสาร + ประวัติ เกิน context 1M
+    await assertWithinContextLimit(client, {
+      messages,
+      system: QA_SYSTEM_PROMPT,
+    });
 
     const msgStream = client.messages.stream({
       model: MODEL,
