@@ -47,10 +47,22 @@ credits on every request. The built-in rate limiter in `src/proxy.ts` is a singl
 in-memory guard — it does **not** cover multi-instance or serverless deployments (e.g.
 Vercel), where each instance keeps its own counter.
 
+The limiter keys on the client IP. By default it does **not** read `x-forwarded-for`
+(a client can forge that header to rotate its apparent IP and slip past the per-IP cap).
+Set `TRUSTED_PROXY=1` **only** when the app runs behind a reverse proxy you control that
+overwrites `x-forwarded-for` itself — then the limiter trusts the forwarded IP. Without a
+trusted proxy and without a runtime-provided connection IP, all traffic shares a single
+bucket (a global cap), which protects spend but rate-limits users together.
+
 Before any public deployment you must add at least one of:
 
 - A distributed rate limiter (e.g. Upstash `@upstash/ratelimit`) keyed by IP, **or**
 - An auth gate / shared-secret header in front of the routes.
+
+Every paid route (`/api/analyze`, `/api/summarize`, `/api/chat`) also counts tokens with
+the free `count_tokens` endpoint and rejects any input over the model's context limit
+**before** making a paid call, so a request that skips the price-preview step still can't
+trigger an oversized spend.
 
 Additionally: uploads are capped server-side at 25 MB (`MAX_UPLOAD_BYTES`). A
 reverse-proxy body-size limit is also advisable.
@@ -149,6 +161,8 @@ src/
 | Variable | Default | Description |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | — | Required. Server-side only. Set in `.env.local`. |
+| `TRUSTED_PROXY` | unset | Set to `1` only when running behind a trusted reverse proxy that sets `x-forwarded-for`. Enables per-IP rate limiting from the forwarded IP. Leave unset otherwise (the header is client-forgeable). |
+| `USD_TO_THB` | `36` | FX rate used for the THB price estimate. Override when the rate drifts. |
 
 ---
 
