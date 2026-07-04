@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   estimateCost,
+  estimateMaxCost,
   LEVELS,
   MODEL,
   MAX_INPUT_TOKENS,
+  CACHE_MIN_INPUT_TOKENS,
   PRICING,
   USD_TO_THB,
   INPUT_USD_PER_MTOK,
@@ -65,6 +67,37 @@ describe("estimateCost — all LEVELS", () => {
       expect(r.usd).toBeCloseTo(expectedUsd, 3);
     }
   );
+});
+
+describe("estimateMaxCost — ceiling uses maxTokens", () => {
+  it("estimateMaxCost(0, 'brief') = {usd:0.12, thb:4.32}", () => {
+    // (0*3 + 8000*15)/1e6 = 0.12 ; thb = 0.12*36 = 4.32
+    expect(estimateMaxCost(0, "brief")).toEqual({ usd: 0.12, thb: 4.32 });
+  });
+
+  it("estimateMaxCost(1_000_000, 'standard') = {usd:3.48, thb:125.28}", () => {
+    // (1e6*3 + 32000*15)/1e6 = 3.48 ; thb = 3.48*36 = 125.28
+    expect(estimateMaxCost(1_000_000, "standard")).toEqual({
+      usd: 3.48,
+      thb: 125.28,
+    });
+  });
+
+  it.each(Object.keys(LEVELS) as DetailLevel[])(
+    "%s: ceiling >= typical estimate (never understates)",
+    (level) => {
+      const inputTokens = 100_000;
+      expect(estimateMaxCost(inputTokens, level).usd).toBeGreaterThanOrEqual(
+        estimateCost(inputTokens, level).usd
+      );
+    }
+  );
+});
+
+describe("CACHE_MIN_INPUT_TOKENS", () => {
+  it("is the Sonnet 4.6 cache minimum (2048)", () => {
+    expect(CACHE_MIN_INPUT_TOKENS).toBe(2_048);
+  });
 });
 
 describe("LEVELS shape", () => {

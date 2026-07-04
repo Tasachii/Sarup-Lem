@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { LEVELS, estimateCost, type DetailLevel } from "@/lib/summarize";
+import {
+  LEVELS,
+  estimateCost,
+  estimateMaxCost,
+  CACHE_MIN_INPUT_TOKENS,
+  type DetailLevel,
+} from "@/lib/summarize";
 import { useHistory } from "./hooks/useHistory";
 import { useSummarize } from "./hooks/useSummarize";
 import { useChat } from "./hooks/useChat";
@@ -35,7 +41,10 @@ export default function Home() {
     showHistorySummary,
   } = useSummarize({ pushHistory, clearChat });
   const chat = useChat(file);
-  clearChatRef.current = chat.clearChat;
+  // เขียน ref ใน effect (ไม่ใช่ตอน render) — ชี้ clearChatRef ไปยัง clearChat ล่าสุด
+  useEffect(() => {
+    clearChatRef.current = chat.clearChat;
+  }, [chat.clearChat]);
 
   const reset = useCallback(() => {
     resetSummarize();
@@ -76,6 +85,7 @@ export default function Home() {
 
   const busy = phase === "analyzing" || phase === "summarizing";
   const cost = analysis ? estimateCost(analysis.inputTokens, level) : null;
+  const maxCost = analysis ? estimateMaxCost(analysis.inputTokens, level) : null;
 
   return (
     <div className="flex flex-1 flex-col items-center px-5 pb-24">
@@ -281,6 +291,11 @@ export default function Home() {
                   (${cost.usd})
                 </span>
               </p>
+              {maxCost && (
+                <p className="mt-1 text-xs text-cream-dim/70">
+                  อาจสูงถึง ~฿{maxCost.thb.toLocaleString()} หากสรุปยาวเต็มที่
+                </p>
+              )}
             </div>
             <div>
               <p className="text-xs text-cream-dim">วิธีอ่าน</p>
@@ -428,10 +443,16 @@ export default function Home() {
                       {chat.chatBusy ? "กำลังตอบ…" : "ถาม"}
                     </button>
                   </form>
-                  <p className="mt-2 text-xs text-cream-dim/60">
-                    คำถามแรกจ่ายค่าอ่านเอกสารเต็ม คำถามถัดไปถูกลง ~90% ด้วย prompt
-                    caching (cache อยู่ได้ ~5 นาทีหลังคำถามล่าสุด)
-                  </p>
+                  {analysis && analysis.inputTokens >= CACHE_MIN_INPUT_TOKENS ? (
+                    <p className="mt-2 text-xs text-cream-dim/60">
+                      คำถามแรกจ่ายค่าอ่านเอกสารเต็ม คำถามถัดไปถูกลง ~90% ด้วย prompt
+                      caching (cache อยู่ได้ ~5 นาทีหลังคำถามล่าสุด)
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-cream-dim/60">
+                      เอกสารนี้สั้นเกินกว่าจะแคชได้ ทุกคำถามจึงคิดค่าอ่านเอกสารตามปกติ
+                    </p>
+                  )}
                 </>
               )}
             </div>

@@ -18,6 +18,9 @@ export const INPUT_USD_PER_MTOK = PRICING.inputUsdPerMTok;
 export const OUTPUT_USD_PER_MTOK = PRICING.outputUsdPerMTok;
 export const USD_TO_THB = PRICING.usdToThb;
 export const MAX_INPUT_TOKENS = 950_000; // กันชนก่อนเต็ม context 1M
+// ต่ำกว่านี้ prompt cache ของ Sonnet 4.6 ไม่ทำงาน (prefix ขั้นต่ำ ~2048 token)
+// → เอกสารสั้นกว่านี้ คำถามถัดไปจะไม่ได้ถูกลง ~90% ตามที่โฆษณา
+export const CACHE_MIN_INPUT_TOKENS = 2_048;
 
 export type DetailLevel = "brief" | "standard" | "detailed";
 
@@ -54,6 +57,22 @@ export function estimateCost(inputTokens: number, level: DetailLevel) {
   const usd =
     (inputTokens * INPUT_USD_PER_MTOK +
       LEVELS[level].estOutputTokens * OUTPUT_USD_PER_MTOK) /
+    1_000_000;
+  return {
+    usd: Number(usd.toFixed(3)),
+    thb: Number((usd * USD_TO_THB).toFixed(2)),
+  };
+}
+
+/**
+ * เพดานค่าใช้จ่าย: คิด output เต็ม maxTokens ของระดับที่เลือก
+ * — ค่าจริงจะอยู่ระหว่าง estimateCost (ปกติ) ถึงค่านี้ (สูงสุด) เพราะ
+ * adaptive thinking + สรุปยาว นับเป็น output token ได้ถึง maxTokens
+ */
+export function estimateMaxCost(inputTokens: number, level: DetailLevel) {
+  const usd =
+    (inputTokens * INPUT_USD_PER_MTOK +
+      LEVELS[level].maxTokens * OUTPUT_USD_PER_MTOK) /
     1_000_000;
   return {
     usd: Number(usd.toFixed(3)),
