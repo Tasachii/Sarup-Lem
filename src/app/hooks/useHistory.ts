@@ -44,6 +44,9 @@ export function useHistory(): UseHistory {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   useEffect(() => {
+    // hydrate จาก localStorage หลัง mount เท่านั้น — เริ่มด้วย [] ทั้งฝั่ง server และ
+    // client render แรก เพื่อเลี่ยง hydration mismatch (localStorage ไม่มีบน server)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHistory(loadHistory());
   }, []);
 
