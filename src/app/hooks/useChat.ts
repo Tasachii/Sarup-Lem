@@ -3,6 +3,26 @@
 import { useCallback, useState } from "react";
 import type { ChatTurn } from "./types";
 
+/**
+ * เตรียมประวัติก่อนส่งเข้า /api/chat — ตัด "เทิร์นที่ error" ออก
+ * (คำตอบที่ล้มเหลว + คำถามที่จับคู่กัน) กันไม่ให้ error ปนเป็น context รอบถัดไป
+ * และส่งเฉพาะ role/content (ตัด flag error ที่ใช้แค่ในจอออก)
+ */
+export function sanitizeChatHistory(
+  turns: ChatTurn[]
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const turn of turns) {
+    if (turn.role === "assistant" && turn.error) {
+      // ทิ้ง user turn ที่จับคู่กับคำตอบที่ล้มเหลวออกด้วย
+      if (out.length > 0 && out[out.length - 1].role === "user") out.pop();
+      continue;
+    }
+    out.push({ role: turn.role, content: turn.content });
+  }
+  return out;
+}
+
 export type UseChat = {
   chat: ChatTurn[];
   chatInput: string;
@@ -32,7 +52,10 @@ export function useChat(file: File | null): UseChat {
     try {
       const form = new FormData();
       form.append("file", file);
-      form.append("payload", JSON.stringify({ history: prior, question: q }));
+      form.append(
+        "payload",
+        JSON.stringify({ history: sanitizeChatHistory(prior), question: q })
+      );
       const res = await fetch("/api/chat", { method: "POST", body: form });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -56,7 +79,7 @@ export function useChat(file: File | null): UseChat {
       const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาด";
       setChat((c) => [
         ...c.slice(0, -1),
-        { role: "assistant", content: `> ⚠️ ${message}` },
+        { role: "assistant", content: `> ⚠️ ${message}`, error: true },
       ]);
     } finally {
       setChatBusy(false);

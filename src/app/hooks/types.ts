@@ -8,7 +8,12 @@ export type Analysis = {
   inputTokens: number;
 };
 
-export type ChatTurn = { role: "user" | "assistant"; content: string };
+export type ChatTurn = {
+  role: "user" | "assistant";
+  content: string;
+  /** true = คำตอบนี้ล้มเหลว (โชว์ในจอได้ แต่ห้ามส่งกลับเป็น context รอบถัดไป) */
+  error?: boolean;
+};
 
 export type HistoryEntry = {
   id: string;
