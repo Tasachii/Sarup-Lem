@@ -105,7 +105,7 @@ The key is server-only — it is never sent to the browser.
 npm run dev          # Next.js dev server with hot reload on :3000
 npm run build        # type-check + production build
 npm run start        # serve the production build on :3000
-npm test             # Vitest unit + route + component tests (145 tests, no API key needed)
+npm test             # Vitest unit + route + component tests (165 tests, no API key needed)
 npm run test:watch   # watch mode
 npm run test:cov     # coverage report (lines 80 / funcs 85 / branches 75 gate)
 npm run test:extract # offline extraction smoke-script (7 file-type cases)
