@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Home from "@/app/page";
+import { encodeStreamEvent } from "@/lib/stream-protocol";
 
 const HISTORY_KEY = "saruplem-history";
 
@@ -29,11 +30,35 @@ function streamResponse(chunks: string[], ok = true, status = 200): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      for (const c of chunks) controller.enqueue(encoder.encode(c));
+      for (const c of chunks) {
+        controller.enqueue(encoder.encode(encodeStreamEvent({ type: "delta", text: c })));
+      }
+      controller.enqueue(encoder.encode(encodeStreamEvent({ type: "done" })));
       controller.close();
     },
   });
-  return new Response(body, { status, headers: { "Content-Type": "text/plain" } });
+  return new Response(body, {
+    status,
+    statusText: ok ? undefined : "Error",
+    headers: { "Content-Type": "application/x-ndjson" },
+  });
+}
+
+function streamFailureResponse(chunks: string[], message: string): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const c of chunks) {
+        controller.enqueue(encoder.encode(encodeStreamEvent({ type: "delta", text: c })));
+      }
+      controller.enqueue(encoder.encode(encodeStreamEvent({ type: "error", message })));
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: { "Content-Type": "application/x-ndjson" },
+  });
 }
 
 function jsonResponse(obj: unknown, status = 200): Response {
@@ -66,6 +91,27 @@ describe("history load + render on mount", () => {
     // หน้าโหลดได้ (เห็น dropzone) และไม่มี history
     expect(await screen.findByText("ลากไฟล์มาวางตรงนี้")).toBeInTheDocument();
     expect(screen.queryByText("ประวัติการสรุป")).not.toBeInTheDocument();
+  });
+
+  it("valid JSON with the wrong shape or malformed entries is safely filtered", async () => {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify({ entries: [makeEntry(1)] }));
+    const { unmount } = render(<Home />);
+    expect(await screen.findByText("ลากไฟล์มาวางตรงนี้")).toBeInTheDocument();
+    expect(screen.queryByText("ประวัติการสรุป")).not.toBeInTheDocument();
+    unmount();
+
+    localStorage.setItem(
+      HISTORY_KEY,
+      JSON.stringify([
+        { ...makeEntry(1), date: "2026-02-30T00:00:00.000Z" },
+        { ...makeEntry(2), level: "unknown" },
+        makeEntry(3),
+      ])
+    );
+    render(<Home />);
+    expect(await screen.findByText("book-3.txt")).toBeInTheDocument();
+    expect(screen.queryByText("book-1.txt")).not.toBeInTheDocument();
+    expect(screen.queryByText("book-2.txt")).not.toBeInTheDocument();
   });
 
   it("deleting a history entry persists the removal", async () => {
@@ -174,15 +220,25 @@ describe("summarize streaming + history persistence", () => {
     });
   });
 
-  it("failed stream (body starts with > ⚠️) → NOT saved to history", async () => {
+  it("typed stream failure after partial output → NOT saved or shown as done", async () => {
     await gotoReady();
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      streamResponse(["\n\n> ⚠️ การสรุปล้มเหลวกลางทาง"])
+      streamFailureResponse(["เนื้อหาบางส่วน"], "การสรุปล้มเหลวกลางทาง")
     );
     fireEvent.click(screen.getByText("เริ่มสรุป →"));
 
-    // รอจน done (เห็นปุ่มดาวน์โหลด) แล้วยืนยันว่าไม่บันทึก
-    await screen.findByText("ดาวน์โหลด .md");
+    expect(await screen.findByText(/การสรุปล้มเหลวกลางทาง/)).toBeInTheDocument();
+    expect(screen.queryByText("ดาวน์โหลด .md")).not.toBeInTheDocument();
+    expect(localStorage.getItem(HISTORY_KEY)).toBeNull();
+  });
+
+  it("explicit done with zero deltas is treated as an error, not empty success", async () => {
+    await gotoReady();
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(streamResponse([]));
+    fireEvent.click(screen.getByText("เริ่มสรุป →"));
+
+    expect(await screen.findByText(/ระบบส่งสรุปว่างเปล่า/)).toBeInTheDocument();
+    expect(screen.queryByText("ดาวน์โหลด .md")).not.toBeInTheDocument();
     expect(localStorage.getItem(HISTORY_KEY)).toBeNull();
   });
 });
@@ -285,7 +341,7 @@ describe("chat (ask)", () => {
     );
     const chatInput = screen.getByPlaceholderText(/ขยายความบทที่ 3/);
     await userEvent.type(chatInput, "บทที่ 3 ว่าอย่างไร");
-    fireEvent.click(screen.getByRole("button", { name: "ถาม" }));
+    fireEvent.click(screen.getByRole("button", { name: /ถาม/ }));
 
     // optimistic user turn + streamed assistant answer
     expect(await screen.findByText("บทที่ 3 ว่าอย่างไร")).toBeInTheDocument();
@@ -301,10 +357,39 @@ describe("chat (ask)", () => {
     );
     const chatInput = screen.getByPlaceholderText(/ขยายความบทที่ 3/);
     await userEvent.type(chatInput, "คำถาม");
-    fireEvent.click(screen.getByRole("button", { name: "ถาม" }));
+    fireEvent.click(screen.getByRole("button", { name: /ถาม/ }));
     await waitFor(() =>
       expect(screen.getByText(/การตอบล้มเหลว/)).toBeInTheDocument()
     );
+  });
+
+  it("partial chat stream failure is excluded from the next request context", async () => {
+    await gotoDone();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        streamFailureResponse(["คำตอบไม่ครบ"], "การตอบล้มเหลวกลางทาง")
+      )
+      .mockResolvedValueOnce(streamResponse(["คำตอบรอบใหม่"]));
+
+    const chatInput = screen.getByPlaceholderText(/ขยายความบทที่ 3/);
+    await userEvent.type(chatInput, "คำถามที่ล้มเหลว");
+    fireEvent.click(screen.getByRole("button", { name: /ถาม/ }));
+    expect(await screen.findByText(/การตอบล้มเหลวกลางทาง/)).toBeInTheDocument();
+
+    await userEvent.type(chatInput, "คำถามรอบใหม่");
+    fireEvent.click(screen.getByRole("button", { name: /ถาม/ }));
+    expect(await screen.findByText("คำตอบรอบใหม่")).toBeInTheDocument();
+
+    const chatCalls = fetchMock.mock.calls.filter(([url]) => url === "/api/chat");
+    expect(chatCalls).toHaveLength(2);
+    const secondForm = chatCalls[1][1]?.body as FormData;
+    const payload = JSON.parse(String(secondForm.get("payload"))) as {
+      history: unknown[];
+      question: string;
+    };
+    expect(payload.history).toEqual([]);
+    expect(payload.question).toBe("คำถามรอบใหม่");
   });
 });
 
@@ -342,6 +427,20 @@ describe("done view actions (copy / download / reset)", () => {
     await waitFor(() => expect(screen.getByText("คัดลอก")).toBeInTheDocument(), {
       timeout: 2500,
     });
+  });
+
+  it("clipboard denial shows a recoverable Thai error", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+      configurable: true,
+    });
+    await gotoDone();
+    fireEvent.click(screen.getByText("คัดลอก"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "คัดลอกไม่สำเร็จ"
+    );
+    fireEvent.click(screen.getByText("สรุปเล่มใหม่"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("downloadSummary creates an object URL and a .md anchor download", async () => {
@@ -416,7 +515,9 @@ describe("cancel summarize mid-stream", () => {
         const signal = (init as RequestInit | undefined)?.signal;
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
-            pull = (chunk: string) => controller.enqueue(encoder.encode(chunk));
+            pull = (chunk: string) => controller.enqueue(
+              encoder.encode(encodeStreamEvent({ type: "delta", text: chunk }))
+            );
             if (signal) {
               signal.addEventListener("abort", () => {
                 controller.error(
@@ -429,7 +530,7 @@ describe("cancel summarize mid-stream", () => {
         return Promise.resolve(
           new Response(body, {
             status: 200,
-            headers: { "Content-Type": "text/plain" },
+            headers: { "Content-Type": "application/x-ndjson" },
           })
         );
       });

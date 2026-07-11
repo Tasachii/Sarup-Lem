@@ -93,12 +93,29 @@ describe("/api/analyze", () => {
     expect(mock.ctor).not.toHaveBeenCalled();
   });
 
-  it("500 when extraction throws (unsupported file)", async () => {
+  it("415 for an unsupported file without exposing an internal parser error", async () => {
     const form = new FormData();
     form.append("file", new File(["x"], "data.csv"));
     const res = await POST(postReq(form));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(415);
     expect((await res.json()).error).toContain("รองรับเฉพาะไฟล์");
+  });
+
+  it("422 for an empty supported file", async () => {
+    const res = await POST(postReq(formWithFile("", "empty.txt")));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe("ไฟล์ว่างเปล่า");
+  });
+
+  it("400 with a stable message when multipart form parsing fails", async () => {
+    const req = new Request("http://localhost/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("รูปแบบคำขอไม่ถูกต้อง");
   });
 
   it("uses MODEL when counting tokens", async () => {

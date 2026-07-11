@@ -6,19 +6,8 @@ import {
   streamToResponse,
 } from "@/lib/route-helpers";
 import { MAX_UPLOAD_BYTES } from "@/lib/extract";
+import { consumeStreamResponse } from "@/lib/stream-protocol";
 import { fakeStream } from "../helpers/anthropic-mock";
-
-async function readAll(res: Response): Promise<string> {
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let out = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    out += decoder.decode(value, { stream: true });
-  }
-  return out;
-}
 
 describe("RouteError", () => {
   it("carries status and message", () => {
@@ -107,29 +96,29 @@ describe("streamToResponse", () => {
   it("assembles streamed chunks and sets streaming headers", async () => {
     const stream = fakeStream({ chunks: ["A", "B", "C"] });
     const res = streamToResponse(stream, "fallback");
-    expect(res.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(res.headers.get("Content-Type")).toBe("application/x-ndjson; charset=utf-8");
     expect(res.headers.get("Cache-Control")).toBe("no-cache");
     expect(res.headers.get("X-Accel-Buffering")).toBe("no");
-    expect(await readAll(res)).toBe("ABC");
+    expect(await consumeStreamResponse(res, () => {})).toBe("ABC");
   });
 
-  it("on mid-stream error appends '> ⚠️ <friendly>' and closes cleanly", async () => {
+  it("reports a typed terminal error after partial output", async () => {
     const stream = fakeStream({
       chunks: ["partial"],
       error: new Error("overloaded_error"),
     });
     const res = streamToResponse(stream, "การสรุปล้มเหลวกลางทาง");
-    const body = await readAll(res);
-    expect(body).toContain("partial");
-    expect(body).toContain("\n\n> ⚠️ ");
-    // friendlyError แปลง overloaded_error เป็นข้อความไทย
-    expect(body).toContain("ระบบ AI กำลังหนาแน่น");
+    let partial = "";
+    await expect(
+      consumeStreamResponse(res, (_delta, accumulated) => { partial = accumulated; })
+    ).rejects.toThrow("ระบบ AI กำลังหนาแน่น");
+    expect(partial).toBe("partial");
   });
 
   it("falls back to fallbackMsg when error is unrecognized", async () => {
     const stream = fakeStream({ error: new Error("") });
     const res = streamToResponse(stream, "MY_FALLBACK");
-    expect(await readAll(res)).toContain("> ⚠️ MY_FALLBACK");
+    await expect(consumeStreamResponse(res, () => {})).rejects.toThrow("MY_FALLBACK");
   });
 
   it("cancel() aborts the underlying stream", async () => {

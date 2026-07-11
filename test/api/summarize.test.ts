@@ -12,6 +12,7 @@ const mock = vi.hoisted(() => {
 vi.mock("@anthropic-ai/sdk", () => ({ default: mock.ctor }));
 
 import { POST, isLevel } from "@/app/api/summarize/route";
+import { consumeStreamResponse } from "@/lib/stream-protocol";
 
 function buildForm(opts: { content?: string; level?: string; name?: string } = {}): FormData {
   const form = new FormData();
@@ -30,18 +31,6 @@ function postReq(form: FormData): Request {
     method: "POST",
     body: form,
   });
-}
-
-async function readAll(res: Response): Promise<string> {
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let out = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    out += decoder.decode(value, { stream: true });
-  }
-  return out;
 }
 
 beforeEach(() => {
@@ -71,21 +60,23 @@ describe("/api/summarize", () => {
     mock.stream.mockImplementation(() => fakeStream({ chunks: ["A", "B", "C"] }));
     const res = await POST(postReq(buildForm()));
     expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(res.headers.get("Content-Type")).toBe("application/x-ndjson; charset=utf-8");
     expect(res.headers.get("Cache-Control")).toBe("no-cache");
     expect(res.headers.get("X-Accel-Buffering")).toBe("no");
-    expect(await readAll(res)).toBe("ABC");
+    expect(await consumeStreamResponse(res, () => {})).toBe("ABC");
   });
 
-  it("mid-stream error → body ends with '> ⚠️ <overloaded friendly>' and closes (no 500)", async () => {
+  it("mid-stream error → typed terminal failure after preserving partial output", async () => {
     mock.stream.mockImplementation(() =>
       fakeStream({ chunks: ["บางส่วน"], error: new Error("overloaded_error") })
     );
     const res = await POST(postReq(buildForm()));
     expect(res.status).toBe(200);
-    const body = await readAll(res);
-    expect(body).toContain("บางส่วน");
-    expect(body).toContain("\n\n> ⚠️ ระบบ AI กำลังหนาแน่น");
+    let partial = "";
+    await expect(
+      consumeStreamResponse(res, (_delta, accumulated) => { partial = accumulated; })
+    ).rejects.toThrow("ระบบ AI กำลังหนาแน่น");
+    expect(partial).toBe("บางส่วน");
   });
 
   it("cancel() invokes the stream's abort()", async () => {
@@ -139,11 +130,12 @@ describe("/api/summarize", () => {
     expect(typeof arg.system).toBe("string");
   });
 
-  describe("level fallback (isLevel) controls max_tokens", () => {
-    it("bogus level → standard (max_tokens 32000)", async () => {
-      await POST(postReq(buildForm({ level: "bogus" })));
-      const arg = mock.stream.mock.calls[0][0] as { max_tokens: number };
-      expect(arg.max_tokens).toBe(32_000);
+  describe("level validation controls max_tokens", () => {
+    it("bogus level → 400 before any paid stream", async () => {
+      const res = await POST(postReq(buildForm({ level: "bogus" })));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toContain("ระดับความละเอียดไม่ถูกต้อง");
+      expect(mock.stream).not.toHaveBeenCalled();
     });
 
     it("detailed → max_tokens 56000", async () => {

@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/extract";
 import { friendlyError } from "@/lib/errors";
 import { MODEL, MAX_INPUT_TOKENS } from "@/lib/summarize";
+import { encodeStreamEvent } from "@/lib/stream-protocol";
 
 /**
  * ส่วนของ MessageStream ที่ streamToResponse ใช้จริง — แยกเป็น interface
@@ -33,6 +34,15 @@ export function requireApiKey(): void {
       500,
       "ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY ในไฟล์ .env.local"
     );
+  }
+}
+
+/** Parse multipart form data without leaking runtime/parser messages to clients. */
+export async function requireFormData(request: Request): Promise<FormData> {
+  try {
+    return await request.formData();
+  } catch {
+    throw new RouteError(400, "รูปแบบคำขอไม่ถูกต้อง");
   }
 }
 
@@ -82,7 +92,7 @@ export function requireFile(form: FormData): File {
 /**
  * ห่อ MessageStream เป็น streaming Response — รวม logic ที่ซ้ำกันใน
  * /api/summarize และ /api/chat: subscribe on("text"), await finalMessage,
- * แปลง error กลางทางเป็น "> ⚠️ ..." และ abort เมื่อ client cancel
+ * ส่ง NDJSON delta + terminal done/error เพื่อให้ client ไม่ตีความ EOF/error เป็นความสำเร็จ
  */
 export function streamToResponse(
   msgStream: StreamLike,
@@ -93,13 +103,14 @@ export function streamToResponse(
     async start(controller) {
       try {
         msgStream.on("text", (delta) => {
-          controller.enqueue(encoder.encode(delta));
+          controller.enqueue(encoder.encode(encodeStreamEvent({ type: "delta", text: delta })));
         });
         await msgStream.finalMessage();
+        controller.enqueue(encoder.encode(encodeStreamEvent({ type: "done" })));
         controller.close();
       } catch (err) {
         const message = friendlyError(err, fallbackMsg);
-        controller.enqueue(encoder.encode(`\n\n> ⚠️ ${message}`));
+        controller.enqueue(encoder.encode(encodeStreamEvent({ type: "error", message })));
         controller.close();
       }
     },
@@ -110,7 +121,7 @@ export function streamToResponse(
 
   return new Response(readable, {
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-cache",
       "X-Accel-Buffering": "no",
     },

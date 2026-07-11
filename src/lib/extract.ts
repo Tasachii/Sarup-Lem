@@ -12,42 +12,63 @@ export type Extracted =
   | { kind: "text"; text: string }
   | { kind: "pdf-native"; base64: string };
 
+export class ExtractError extends Error {
+  constructor(
+    public readonly status: 413 | 415 | 422,
+    message: string
+  ) {
+    super(message);
+    this.name = "ExtractError";
+  }
+}
+
 export async function extractFromFile(file: File): Promise<Extracted> {
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error(`ไฟล์ใหญ่เกิน ${MAX_UPLOAD_MB}MB — กรุณาแบ่งไฟล์เป็นส่วนย่อยก่อน`);
+    throw new ExtractError(413, `ไฟล์ใหญ่เกิน ${MAX_UPLOAD_MB}MB — กรุณาแบ่งไฟล์เป็นส่วนย่อยก่อน`);
   }
 
   const name = file.name.toLowerCase();
   const buf = Buffer.from(await file.arrayBuffer());
 
   if (name.endsWith(".pdf")) {
-    const pdf = await getDocumentProxy(new Uint8Array(buf));
-    const { text } = await extractText(pdf, { mergePages: true });
-    const cleaned = (text ?? "").trim();
-    if (cleaned.length >= 500) return { kind: "text", text: cleaned };
-    // แทบไม่มี text layer = น่าจะเป็นไฟล์สแกน → ให้โมเดลอ่านภาพจาก PDF ตรงๆ
-    if (buf.length <= MAX_NATIVE_PDF_BYTES) {
-      return { kind: "pdf-native", base64: buf.toString("base64") };
+    try {
+      const pdf = await getDocumentProxy(new Uint8Array(buf));
+      const { text } = await extractText(pdf, { mergePages: true });
+      const cleaned = (text ?? "").trim();
+      if (cleaned.length >= 500) return { kind: "text", text: cleaned };
+      // แทบไม่มี text layer = น่าจะเป็นไฟล์สแกน → ให้โมเดลอ่านภาพจาก PDF ตรงๆ
+      if (buf.length <= MAX_NATIVE_PDF_BYTES) {
+        return { kind: "pdf-native", base64: buf.toString("base64") };
+      }
+      throw new ExtractError(
+        413,
+        "PDF นี้เป็นไฟล์สแกนขนาดเกิน 20MB — กรุณาแปลงเป็น text ก่อน หรือแบ่งไฟล์เป็นส่วนย่อย"
+      );
+    } catch (err) {
+      if (err instanceof ExtractError) throw err;
+      throw new ExtractError(422, "อ่านไฟล์ PDF ไม่ได้ — ไฟล์อาจเสียหายหรือไม่ใช่ PDF ที่ถูกต้อง");
     }
-    throw new Error(
-      "PDF นี้เป็นไฟล์สแกนขนาดเกิน 20MB — กรุณาแปลงเป็น text ก่อน หรือแบ่งไฟล์เป็นส่วนย่อย"
-    );
   }
 
   if (name.endsWith(".docx")) {
-    const { value } = await mammoth.extractRawText({ buffer: buf });
-    const cleaned = value.trim();
-    if (!cleaned) throw new Error("อ่านข้อความจากไฟล์ DOCX ไม่ได้");
-    return { kind: "text", text: cleaned };
+    try {
+      const { value } = await mammoth.extractRawText({ buffer: buf });
+      const cleaned = value.trim();
+      if (!cleaned) throw new ExtractError(422, "อ่านข้อความจากไฟล์ DOCX ไม่ได้");
+      return { kind: "text", text: cleaned };
+    } catch (err) {
+      if (err instanceof ExtractError) throw err;
+      throw new ExtractError(422, "อ่านไฟล์ DOCX ไม่ได้ — ไฟล์อาจเสียหายหรือไม่ถูกต้อง");
+    }
   }
 
   if (name.endsWith(".txt") || name.endsWith(".md")) {
     const cleaned = buf.toString("utf-8").trim();
-    if (!cleaned) throw new Error("ไฟล์ว่างเปล่า");
+    if (!cleaned) throw new ExtractError(422, "ไฟล์ว่างเปล่า");
     return { kind: "text", text: cleaned };
   }
 
-  throw new Error("รองรับเฉพาะไฟล์ .pdf .docx .txt และ .md");
+  throw new ExtractError(415, "รองรับเฉพาะไฟล์ .pdf .docx .txt และ .md");
 }
 
 /**

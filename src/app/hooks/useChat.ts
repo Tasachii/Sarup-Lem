@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { ChatTurn } from "./types";
+import { consumeStreamResponse } from "@/lib/stream-protocol";
 
 /**
  * เตรียมประวัติก่อนส่งเข้า /api/chat — ตัด "เทิร์นที่ error" ออก
@@ -61,20 +62,12 @@ export function useChat(file: File | null): UseChat {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? "การตอบล้มเหลว");
       }
-      if (!res.body) throw new Error("ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let acc = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        acc += decoder.decode(value, { stream: true });
-        const answer = acc;
+      await consumeStreamResponse(res, (_delta, answer) => {
         setChat((c) => [
           ...c.slice(0, -1),
           { role: "assistant", content: answer },
         ]);
-      }
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาด";
       setChat((c) => [

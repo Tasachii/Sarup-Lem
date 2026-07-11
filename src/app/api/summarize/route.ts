@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { extractFromFile, toUserContent } from "@/lib/extract";
+import { ExtractError, extractFromFile, toUserContent } from "@/lib/extract";
 import {
   MODEL,
   SYSTEM_PROMPT,
@@ -14,6 +14,7 @@ import {
   requireFile,
   streamToResponse,
   assertWithinContextLimit,
+  requireFormData,
 } from "@/lib/route-helpers";
 
 export const runtime = "nodejs";
@@ -27,10 +28,13 @@ export async function POST(request: Request) {
   try {
     requireApiKey();
 
-    const form = await request.formData();
+    const form = await requireFormData(request);
     const file = requireFile(form);
     const rawLevel = form.get("level");
-    const level: DetailLevel = isLevel(rawLevel) ? rawLevel : "standard";
+    if (rawLevel !== null && !isLevel(rawLevel)) {
+      throw new RouteError(400, "ระดับความละเอียดไม่ถูกต้อง — เลือก brief, standard หรือ detailed");
+    }
+    const level: DetailLevel = rawLevel ?? "standard";
 
     const extracted = await extractFromFile(file);
     const client = new Anthropic();
@@ -55,7 +59,7 @@ export async function POST(request: Request) {
 
     return streamToResponse(msgStream, "การสรุปล้มเหลวกลางทาง");
   } catch (err) {
-    if (err instanceof RouteError) {
+    if (err instanceof RouteError || err instanceof ExtractError) {
       return Response.json({ error: err.message }, { status: err.status });
     }
     return Response.json(

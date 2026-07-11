@@ -17,6 +17,7 @@ import {
   MAX_HISTORY_TURNS,
   MAX_TURN_CONTENT_CHARS,
 } from "@/app/api/chat/route";
+import { consumeStreamResponse } from "@/lib/stream-protocol";
 
 type Turn = { role: string; content: string };
 
@@ -220,20 +221,16 @@ describe("/api/chat — stream params + lifecycle", () => {
     expect(arg.output_config).toEqual({ effort: "medium" });
   });
 
-  it("mid-stream error → '> ⚠️' suffix, closes cleanly", async () => {
+  it("mid-stream error → typed terminal failure after partial output", async () => {
     mock.stream.mockImplementation(() =>
       fakeStream({ chunks: ["บางส่วน"], error: new Error("overloaded_error") })
     );
     const res = await POST(postReq({ history: [], question: "Q" }));
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let body = "";
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      body += decoder.decode(value, { stream: true });
-    }
-    expect(body).toContain("\n\n> ⚠️ ระบบ AI กำลังหนาแน่น");
+    let partial = "";
+    await expect(
+      consumeStreamResponse(res, (_delta, accumulated) => { partial = accumulated; })
+    ).rejects.toThrow("ระบบ AI กำลังหนาแน่น");
+    expect(partial).toBe("บางส่วน");
   });
 
   it("cancel() aborts the underlying stream", async () => {

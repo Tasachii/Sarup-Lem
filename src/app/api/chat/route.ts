@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { extractFromFile, toUserContent } from "@/lib/extract";
+import { ExtractError, extractFromFile, toUserContent } from "@/lib/extract";
 import { MODEL, QA_SYSTEM_PROMPT } from "@/lib/summarize";
 import { friendlyError } from "@/lib/errors";
 import {
@@ -8,6 +8,7 @@ import {
   requireFile,
   streamToResponse,
   assertWithinContextLimit,
+  requireFormData,
 } from "@/lib/route-helpers";
 
 export const runtime = "nodejs";
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
   try {
     requireApiKey();
 
-    const form = await request.formData();
+    const form = await requireFormData(request);
     const file = requireFile(form);
 
     let history: ChatTurn[] = [];
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
 
     return streamToResponse(msgStream, "การตอบล้มเหลวกลางทาง");
   } catch (err) {
-    if (err instanceof RouteError) {
+    if (err instanceof RouteError || err instanceof ExtractError) {
       return Response.json({ error: err.message }, { status: err.status });
     }
     return Response.json(

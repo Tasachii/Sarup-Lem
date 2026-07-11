@@ -16,6 +16,7 @@ import { useChat } from "./hooks/useChat";
 export default function Home() {
   const [dragging, setDragging] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -47,6 +48,7 @@ export default function Home() {
   }, [chat.clearChat]);
 
   const reset = useCallback(() => {
+    setActionError(null);
     resetSummarize();
     if (inputRef.current) inputRef.current.value = "";
   }, [resetSummarize]);
@@ -62,15 +64,23 @@ export default function Home() {
       e.preventDefault();
       setDragging(false);
       const f = e.dataTransfer.files?.[0];
-      if (f) analyze(f);
+      if (f) {
+        setActionError(null);
+        analyze(f);
+      }
     },
     [analyze]
   );
 
   const copySummary = useCallback(async () => {
-    await navigator.clipboard.writeText(summary);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    setActionError(null);
+    try {
+      await navigator.clipboard.writeText(summary);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setActionError("คัดลอกไม่สำเร็จ — กรุณาเลือกข้อความแล้วคัดลอกด้วยตนเอง");
+    }
   }, [summary]);
 
   const downloadSummary = useCallback(() => {
@@ -88,7 +98,10 @@ export default function Home() {
   const maxCost = analysis ? estimateMaxCost(analysis.inputTokens, level) : null;
 
   return (
-    <div className="flex flex-1 flex-col items-center px-5 pb-24">
+    <div
+      className="flex flex-1 flex-col items-center px-5 pb-24"
+      aria-busy={busy}
+    >
       {/* ---------- header ---------- */}
       <header className="w-full max-w-3xl pt-16 pb-10 text-center">
         <p
@@ -115,8 +128,19 @@ export default function Home() {
 
       {/* ---------- error ---------- */}
       {error && (
-        <div className="w-full max-w-3xl mb-6 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+        <div
+          role="alert"
+          className="w-full max-w-3xl mb-6 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200"
+        >
           ⚠️ {error}
+        </div>
+      )}
+      {actionError && (
+        <div
+          role="alert"
+          className="w-full max-w-3xl mb-6 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200"
+        >
+          ⚠️ {actionError}
         </div>
       )}
 
@@ -192,7 +216,10 @@ export default function Home() {
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) analyze(f);
+              if (f) {
+                setActionError(null);
+                analyze(f);
+              }
             }}
           />
 
@@ -209,7 +236,10 @@ export default function Home() {
                     className="group flex items-center gap-3 rounded-xl border border-ink-line bg-ink-soft/50 px-4 py-3 transition-colors hover:border-amber-deep"
                   >
                     <button
-                      onClick={() => openHistory(entry, showHistorySummary)}
+                      onClick={() => {
+                        setActionError(null);
+                        openHistory(entry, showHistorySummary);
+                      }}
                       className="flex-1 cursor-pointer text-left"
                     >
                       <p className="text-sm text-cream break-all">
@@ -227,7 +257,8 @@ export default function Home() {
                     <button
                       onClick={() => deleteHistory(entry.id)}
                       title="ลบ"
-                      className="cursor-pointer rounded-full px-2 py-1 text-xs text-cream-dim/50 opacity-0 transition-opacity hover:text-red-300 group-hover:opacity-100"
+                      aria-label={`ลบประวัติ ${entry.fileName}`}
+                      className="cursor-pointer rounded-full px-2 py-1 text-xs text-cream-dim/50 opacity-0 transition-opacity hover:text-red-300 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber group-hover:opacity-100 group-focus-within:opacity-100"
                     >
                       ✕
                     </button>
@@ -328,7 +359,7 @@ export default function Home() {
       {(phase === "summarizing" || phase === "done") && (
         <section className="fade-up w-full max-w-3xl">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-cream-dim">
+            <p className="text-sm text-cream-dim" role="status" aria-live="polite">
               {phase === "summarizing" ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="spin-slow inline-block h-3.5 w-3.5 rounded-full border border-ink-line border-t-amber" />
@@ -392,7 +423,11 @@ export default function Home() {
               ) : (
                 <>
                   {chat.chat.length > 0 && (
-                    <div className="mb-4 flex flex-col gap-3">
+                    <div
+                      className="mb-4 flex flex-col gap-3"
+                      aria-live="polite"
+                      aria-busy={chat.chatBusy}
+                    >
                       {chat.chat.map((turn, i) =>
                         turn.role === "user" ? (
                           <div
@@ -440,17 +475,17 @@ export default function Home() {
                       disabled={chat.chatBusy || !chat.chatInput.trim()}
                       className="cursor-pointer rounded-full bg-amber px-6 py-3 font-display text-sm font-semibold text-ink transition-colors hover:bg-amber-deep disabled:cursor-default disabled:opacity-40"
                     >
-                      {chat.chatBusy ? "กำลังตอบ…" : "ถาม"}
+                      {chat.chatBusy ? "กำลังตอบ…" : "ถาม (มีค่า API)"}
                     </button>
                   </form>
                   {analysis && analysis.inputTokens >= CACHE_MIN_INPUT_TOKENS ? (
                     <p className="mt-2 text-xs text-cream-dim/60">
-                      คำถามแรกจ่ายค่าอ่านเอกสารเต็ม คำถามถัดไปถูกลง ~90% ด้วย prompt
+                      การกดถามทุกครั้งมีค่า API · คำถามแรกจ่ายค่าอ่านเอกสารเต็ม คำถามถัดไปถูกลง ~90% ด้วย prompt
                       caching (cache อยู่ได้ ~5 นาทีหลังคำถามล่าสุด)
                     </p>
                   ) : (
                     <p className="mt-2 text-xs text-cream-dim/60">
-                      เอกสารนี้สั้นเกินกว่าจะแคชได้ ทุกคำถามจึงคิดค่าอ่านเอกสารตามปกติ
+                      การกดถามทุกครั้งมีค่า API · เอกสารนี้สั้นเกินกว่าจะแคชได้ ทุกคำถามจึงคิดค่าอ่านเอกสารตามปกติ
                     </p>
                   )}
                 </>

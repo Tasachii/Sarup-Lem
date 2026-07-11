@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { DetailLevel } from "@/lib/summarize";
 import type { Analysis, HistoryEntry, Phase } from "./types";
+import { consumeStreamResponse } from "@/lib/stream-protocol";
 
 type Options = {
   /** เพิ่ม entry ลงประวัติเมื่อสรุปสำเร็จ */
@@ -93,18 +94,14 @@ export function useSummarize({ pushHistory, clearChat }: Options): UseSummarize 
         const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? "การสรุปล้มเหลว");
       }
-      if (!res.body) throw new Error("ไม่ได้รับข้อมูลจากเซิร์ฟเวอร์");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        acc += decoder.decode(value, { stream: true });
-        setSummary(acc);
+      acc = await consumeStreamResponse(res, (_delta, accumulated) => {
+        acc = accumulated;
+        setSummary(accumulated);
+      });
+      if (!acc.trim()) {
+        throw new Error("ระบบส่งสรุปว่างเปล่า — กรุณาลองใหม่");
       }
       setPhase("done");
-      // บันทึกลงประวัติ — ข้ามถ้าสรุปล้มเหลวตั้งแต่ต้น (ได้แต่ข้อความ error)
-      if (!acc.trim() || acc.trimStart().startsWith("> ⚠️")) return;
       const entry: HistoryEntry = {
         id: crypto.randomUUID(),
         fileName: file.name,
