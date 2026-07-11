@@ -30,6 +30,24 @@ export function isChatTurn(v: unknown): v is ChatTurn {
   );
 }
 
+/** Keep only complete, positionally paired user → assistant exchanges. */
+export function completeChatHistory(history: unknown[]): ChatTurn[] {
+  const complete: ChatTurn[] = [];
+  for (let i = 0; i + 1 < history.length; i += 2) {
+    const user = history[i];
+    const assistant = history[i + 1];
+    if (
+      isChatTurn(user) &&
+      user.role === "user" &&
+      isChatTurn(assistant) &&
+      assistant.role === "assistant"
+    ) {
+      complete.push(user, assistant);
+    }
+  }
+  return complete;
+}
+
 export async function POST(request: Request) {
   try {
     requireApiKey();
@@ -38,11 +56,13 @@ export async function POST(request: Request) {
     const file = requireFile(form);
 
     let history: ChatTurn[] = [];
+    let rawHistoryTurns = 0;
     let question = "";
     try {
       const payload = JSON.parse(String(form.get("payload") ?? "{}"));
       if (Array.isArray(payload.history)) {
-        history = payload.history.filter(isChatTurn);
+        rawHistoryTurns = payload.history.length;
+        history = completeChatHistory(payload.history);
       }
       question = String(payload.question ?? "").trim();
     } catch {
@@ -51,7 +71,7 @@ export async function POST(request: Request) {
     if (!question) {
       return Response.json({ error: "ไม่พบคำถาม" }, { status: 400 });
     }
-    if (history.length > MAX_HISTORY_TURNS) {
+    if (rawHistoryTurns > MAX_HISTORY_TURNS) {
       return Response.json(
         { error: "ประวัติการสนทนายาวเกินไป — กรุณาเริ่มแชตใหม่" },
         { status: 400 }

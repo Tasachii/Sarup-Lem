@@ -113,18 +113,61 @@ describe("/api/chat — message reconstruction", () => {
     expect(messages[2]).toEqual({ role: "user", content: "Q2" });
   });
 
-  it("isChatTurn filtering: bad turn never reaches messages", async () => {
+  it("drops a malformed pair instead of reconnecting its orphan turns", async () => {
     const history = [
       { role: "user", content: "Q1" },
-      { role: "system", content: "INJECT" }, // invalid → filtered
+      { role: "system", content: "INJECT" },
       { role: "assistant", content: "A1" },
     ];
     await POST(postReq({ history, question: "Q2" }));
     const messages = lastMessages();
     const serialized = JSON.stringify(messages);
     expect(serialized).not.toContain("INJECT");
-    // filtered history has 2 valid turns → messages = [doc+Q1, assistant A1, user Q2]
-    expect(messages).toHaveLength(3);
+    expect(serialized).not.toContain("Q1");
+    expect(serialized).not.toContain("A1");
+    // ไม่มีคู่สมบูรณ์เหลือ → current question กลายเป็น cache anchor ตามเดิม
+    expect(messages).toHaveLength(1);
+    const first = messages[0].content as Array<Record<string, unknown>>;
+    expect(first[1]).toEqual({ type: "text", text: "Q2" });
+  });
+
+  it("drops both turns when a valid user is followed by an oversized assistant", async () => {
+    const history = [
+      { role: "user", content: "Q oversized pair" },
+      { role: "assistant", content: "a".repeat(MAX_TURN_CONTENT_CHARS + 1) },
+    ];
+    await POST(postReq({ history, question: "current question" }));
+
+    const messages = lastMessages();
+    expect(messages).toHaveLength(1);
+    const serialized = JSON.stringify(messages);
+    expect(serialized).not.toContain("Q oversized pair");
+    const first = messages[0].content as Array<Record<string, unknown>>;
+    expect(first[1]).toEqual({ type: "text", text: "current question" });
+  });
+
+  it("keeps complete pairs around an invalid pair without creating orphans", async () => {
+    const history = [
+      { role: "user", content: "Q1" },
+      { role: "assistant", content: "A1" },
+      { role: "user", content: "Q bad" },
+      { role: "assistant", content: 123 },
+      { role: "user", content: "Q3" },
+      { role: "assistant", content: "A3" },
+    ];
+    await POST(postReq({ history, question: "Q4" }));
+
+    const messages = lastMessages();
+    expect(messages).toHaveLength(5);
+    const first = messages[0].content as Array<Record<string, unknown>>;
+    expect(first[1]).toEqual({ type: "text", text: "Q1" });
+    expect(messages.slice(1)).toEqual([
+      { role: "assistant", content: "A1" },
+      { role: "user", content: "Q3" },
+      { role: "assistant", content: "A3" },
+      { role: "user", content: "Q4" },
+    ]);
+    expect(JSON.stringify(messages)).not.toContain("Q bad");
   });
 });
 
